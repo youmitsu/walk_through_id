@@ -23,8 +23,8 @@
 #define MODE_KIND 3
 
 /*******「誰の」「何の処理か」を設定********/
-#define ID 0                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
-#define MODE 0                                           //0:ラベリングテストモード 1:追跡モード 2:再生モード
+#define ID 3                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
+#define MODE 1                                           //0:ラベリングモード 1:追跡モード 2:再生モード
 
 using namespace std;
 using namespace cv;
@@ -420,7 +420,9 @@ void output_labels(){
 		for (int x = 0; x < width; x++){
 			vector<int> point{ x, y };
 			int label = labels[point];
-			out_labels << label << endl;
+			if (label != 0){
+				out_labels << x << "," << y << "," << label << endl;
+			}
 		}
 	}
 	out_labels.close();
@@ -434,9 +436,34 @@ void import_labels(){
 		cout << "Exception: ファイルが見つかりません。" << endl;
 		cin.get();
 	}
+
 	string str;
+	int x, y, l, c;
+	vector<int> p;
 	while (getline(input_labels_file, str)){
-		
+		string tmp;
+		istringstream stream(str);
+		c = 0;
+		while (getline(stream, tmp, ',')){
+			if (c == 0){ x = stoi(tmp); }
+			else if (c == 1){ y = stoi(tmp); }
+			else{ l = stoi(tmp); }
+			c++;
+		}
+		p = { x, y };
+		labels[p] = l;
+	}
+
+	for (int y = 0; y < height; y++){
+		for (int x = 0; x < width; x++){
+			p = { x, y };
+			if (!labels[p]){
+				labels[p] = 0;
+			}
+			else{
+				cout << "ok" << endl;
+			}
+		}
 	}
 }
 
@@ -718,11 +745,11 @@ int _tmain(int argc, _TCHAR* argv[])
 			if (MODE == 0){
 				labeling(frame);
 				output_labels();
-				for (int i = 0; i < label_list.size(); i++){
+		/*		for (int i = 0; i < label_list.size(); i++){
 					int label = label_list[i];
 					Vec3b label_color = label_color_list[label];
 					cout << label << ":" << label_color << endl;
-				}
+				}*/
 		/*		for (int y = 0; y < height; y++){
 					Vec3b* ptr = frame.ptr<Vec3b>(y);
 					for (int x = 0; x < width; x++){
@@ -860,6 +887,8 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	namedWindow("ラベリング結果");
 	imshow("ラベリング結果", dst_img);
+	cout << "プログラムの終了" << endl;
+	cin.get();
 	waitKey(0);
 	return 0;
 }
