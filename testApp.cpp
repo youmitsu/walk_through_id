@@ -14,6 +14,7 @@
 //#pragma comment(lib, "libfftw3-3.lib")
 //#pragma comment(lib, "libfftw3f-3.lib")
 //#pragma comment(lib, "libfftw3l-3.lib")
+#define PI 3.141592
 #define LOOKUP_SIZE 100                                  //ルックアップテーブルのデフォルトサイズ
 #define LABEL_KIND_NUM 5                                 //取得したいラベルの種類数
 #define AROUND_PIXEL_X 500                               //現在の座標の周りの探索する際のXの範囲
@@ -21,10 +22,12 @@
 #define ID_COUNT 4                                       //データとなる動画の数
 #define COLOR_DECIDE_LENGTH 6                            //色空間を定義するのに必要な要素数 ex){rs, re, gs, ge, bs, be}の配列
 #define MODE_KIND 3
+#define FEATURE_KIND 2
 
-/*******「誰の」「何の処理か」を設定********/
+/*******「誰の」「何の処理か」「特徴量」を設定********/
 #define ID 3                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
 #define MODE 1                                           //0:ラベリングモード 1:追跡モード 2:再生モード
+#define FEATURE 1                                        //0:股の角度、1:膝の角度
 
 using namespace std;
 using namespace cv;
@@ -77,13 +80,14 @@ int width;                                                   //画像の幅
 int height;                                                  //高さ
 vector<double> angles;                                       //フレームごとの関節の角度
 const string output_labels_filename[ID_COUNT] = { "output_labels_hoshino.txt",  "output_labels_shuno.txt",
-"output_labels_haneda.txt", "output_labels_kitazawa.txt"};
+"output_labels_haneda.txt", "output_labels_kitazawa.txt" };
 
 //グローバル変数の初期化
 void init_config(){
 	try{
 		if (ID < 0 || ID >= ID_COUNT){ throw "Exception: IDが範囲外です。"; }
 		if (MODE < 0 || MODE >= MODE_KIND){ throw "Exception: MODEが範囲外です。"; }
+		if (FEATURE < 0 || FEATURE >= FEATURE_KIND){ throw "Exception: FEATUREが範囲外です。"; }
 	}
 	catch (char *e){
 		cout << e;
@@ -460,9 +464,6 @@ void import_labels(){
 			if (!labels[p]){
 				labels[p] = 0;
 			}
-			else{
-				cout << "ok" << endl;
-			}
 		}
 	}
 }
@@ -650,22 +651,32 @@ void set_cog_each_label(Label *ankle, Label *left_knee, Label *right_knee,
 	right_heel->calc_and_set_cog();
 }
 
+//3点を与えられたときに角度を求める
+//c:角度の基準点、a,b:それ以外
+void evaluate_angle(Point c, Point a, Point b){
+	int cx = c.x;
+	int cy = c.y;
+	int ax = a.x;
+	int ay = a.y;
+	int bx = b.x;
+	int by = b.y;
+	int ax_cx = ax - cx;
+	int ay_cy = ay - cy;
+	int bx_cx = bx - cx;
+	int by_cy = by - cy;
+	float cos = ((ax_cx*bx_cx) + (ay_cy*by_cy)) / ((sqrt((ax_cx*ax_cx) + (ay_cy*ay_cy))*sqrt((bx_cx*bx_cx) + (by_cy*by_cy))));
+	float angle = acosf(cos);
+	if (angle > PI / 2){ angle = PI-angle; }
+	angles.push_back(angle);
+}
 
 //腰と右膝、左膝から成す角度を求め、anglesにpushする
-void set_angle_ankle_and_knees(Point ankle, Point right_knee, Point left_knee){
-	int ankle_x = ankle.x;
-	int ankle_y = ankle.y;
-	int right_knee_x = right_knee.x;
-	int right_knee_y = right_knee.y;
-	int left_knee_x = left_knee.x;
-	int left_knee_y = left_knee.y;
-	int a1 = right_knee_x - ankle_x;
-	int a2 = right_knee_y - ankle_y;
-	int b1 = left_knee_x - ankle_x;
-	int b2 = left_knee_y - ankle_y;
-	float cos = ((a1*b1) + (a2*b2)) / ((sqrt((a1*a1) + (a2*a2))*sqrt((b1*b1) + (b2*b2))));
-	float angle = acosf(cos);
-	angles.push_back(angle);
+void evaluate_angle_ankle_and_knees(Point ankle, Point right_knee, Point left_knee){
+	evaluate_angle(ankle, right_knee, left_knee);
+}
+
+void evaluate_front_knee_angle(Point left_knee, Point ankle, Point left_heel){
+	evaluate_angle(left_knee, ankle, left_heel);
 }
 
 //ただの動画再生のためのメソッド
@@ -765,8 +776,21 @@ int _tmain(int argc, _TCHAR* argv[])
 				import_labels();
 				init_label_class(frame, &ankle, &left_knee, &right_knee,
 					&left_heel, &right_heel);
-				set_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
-					right_knee.get_cog()[count - use_start_frame], left_knee.get_cog()[count - use_start_frame]);
+				switch (FEATURE){
+				case 0:
+					evaluate_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
+						right_knee.get_cog()[count - use_start_frame], left_knee.get_cog()[count - use_start_frame]);
+				case 1:
+					evaluate_front_knee_angle(right_knee.get_cog()[count - use_start_frame],
+						ankle.get_cog()[count - use_start_frame], right_heel.get_cog()[count - use_start_frame]);
+				default:
+					break;
+				}
+			/*	circle(dst_img, ankle.get_cog()[count - use_start_frame], 10, Scalar(255, 0, 0), -1);
+				circle(dst_img, left_knee.get_cog()[count - use_start_frame], 5, Scalar(255, 255, 255), -1);
+				circle(dst_img, left_knee.get_cog()[count - use_start_frame], 10, Scalar(0, 255, 0), -1);
+				circle(dst_img, left_heel.get_cog()[count - use_start_frame], 10, Scalar(0, 0, 255), -1);
+				circle(dst_img, right_heel.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 255), -1);*/
 			}
 		}
 		else if(count >= use_end_frame){
@@ -782,15 +806,22 @@ int _tmain(int argc, _TCHAR* argv[])
 				search_around_points(frame, &ankle, &left_knee, &right_knee, &left_heel, &right_heel);
 
 				set_cog_each_label(&ankle, &left_knee, &right_knee, &left_heel, &right_heel);
-
-				set_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
-					right_knee.get_cog()[count - use_start_frame], left_knee.get_cog()[count - use_start_frame]);
+				switch (FEATURE){
+				case 0:
+					evaluate_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
+						right_knee.get_cog()[count - use_start_frame], left_knee.get_cog()[count - use_start_frame]);
+				case 1:
+					evaluate_front_knee_angle(right_knee.get_cog()[count - use_start_frame],
+						ankle.get_cog()[count - use_start_frame], right_heel.get_cog()[count - use_start_frame]);
+				default:
+					break;
+				}
 			}
 			else{
 				break;
 			}
 		}
-		
+		/*
 		for (int y = 0; y < height; y++){
 			Vec3b* ptr = frame.ptr<Vec3b>(y);
 			for (int x = 0; x < width; x++){
@@ -803,13 +834,14 @@ int _tmain(int argc, _TCHAR* argv[])
 				}
 			}
 		}
-        
+        */
 		if (MODE == 1){
+			/*
 			circle(dst_img, ankle.get_cog()[count - use_start_frame], 5, Scalar(0, 0, 255), -1);
 			circle(dst_img, left_knee.get_cog()[count - use_start_frame], 5, Scalar(0, 255, 0), -1);
 			circle(dst_img, right_knee.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 0), -1);
 			circle(dst_img, left_heel.get_cog()[count - use_start_frame], 5, Scalar(0, 255, 255), -1);
-			circle(dst_img, right_heel.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 255), -1);
+			circle(dst_img, right_heel.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 255), -1);*/
 		}
 
 		try{
