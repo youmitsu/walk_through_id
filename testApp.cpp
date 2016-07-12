@@ -220,7 +220,7 @@ void Label::change_ptr(){
 }
 
 void Label::set_prev_back_up(){
-	if (!prev_points.size() == 0){
+	if (prev_points.size() != 0){
 		prev_back_up = prev_points[0];
 	}
 }
@@ -485,6 +485,96 @@ void change_min_and_max_value(int x, int y, int *max_x, int *max_y,
 	}
 }
 
+/***********ヒストグラム求める***************/
+int ankle_hist[3][255];
+int left_knee_hist[3][255];
+int right_knee_hist[3][255];
+int left_heel_hist[3][255];
+int right_heel_hist[3][255];
+
+void histgram(int part, Vec3b val){
+	int r = val[2];
+	int g = val[1];
+	int b = val[0];
+	switch (part){
+	case 0:
+		ankle_hist[0][r] += 1;
+		ankle_hist[1][g] += 1;
+		ankle_hist[2][b] += 1;
+	case 1:
+		left_knee_hist[0][r] += 1;
+		left_knee_hist[1][g] += 1;
+		left_knee_hist[2][b] += 1;
+	case 2:
+		right_knee_hist[0][r] += 1;
+		right_knee_hist[1][g] += 1;
+		right_knee_hist[2][b] += 1;
+	case 3:
+		left_heel_hist[0][r] += 1;
+		left_heel_hist[1][g] += 1;
+		left_heel_hist[2][b] += 1;
+	case 4:
+		right_heel_hist[0][r] += 1;
+		right_heel_hist[1][g] += 1;
+		right_heel_hist[2][b] += 1;
+	default:
+		cout << "おいおいちょっと待て" << endl;
+		break;
+	}
+}
+
+void output_histgram_data(){
+	ofstream ankle_r("ankle_histgram_r.txt");
+	ofstream ankle_g("ankle_histgram_g.txt");
+	ofstream ankle_b("ankle_histgram_b.txt");
+	ofstream left_knee_r("left_knee_histgram_r.txt");
+	ofstream left_knee_g("left_knee_histgram_g.txt");
+	ofstream left_knee_b("left_knee_histgram_b.txt");
+	ofstream right_knee_r("right_knee_histgram_r.txt");
+	ofstream right_knee_g("right_knee_histgram_g.txt");
+	ofstream right_knee_b("right_knee_histgram_b.txt");
+	ofstream left_heel_r("left_heel_histgram_r.txt");
+	ofstream left_heel_g("left_heel_histgram_g.txt");
+	ofstream left_heel_b("left_heel_histgram_b.txt");
+	ofstream right_heel_r("right_heel_histgram_r.txt");
+	ofstream right_heel_g("right_heel_histgram_g.txt");
+	ofstream right_heel_b("right_heel_histgram_b.txt");
+	for (int i = 0; i < 255; i++){
+		ankle_r << ankle_hist[0][i] << endl;
+		ankle_g << ankle_hist[1][i] << endl;
+		ankle_b << ankle_hist[2][i] << endl;
+		left_knee_r << left_knee_hist[0][i] << endl;
+		left_knee_g << left_knee_hist[1][i] << endl;
+		left_knee_b << left_knee_hist[2][i] << endl;
+		right_knee_r << right_knee_hist[0][i] << endl;
+		right_knee_g << right_knee_hist[1][i] << endl;
+		right_knee_b << right_knee_hist[2][i] << endl;
+		left_heel_r << left_heel_hist[0][i] << endl;
+		left_heel_g << left_heel_hist[1][i] << endl;
+		left_heel_b << left_heel_hist[2][i] << endl;
+		right_heel_r << right_heel_hist[0][i] << endl;
+		right_heel_g << right_heel_hist[1][i] << endl;
+		right_heel_b << right_heel_hist[2][i] << endl;
+	}
+	ankle_r.close();
+	ankle_g.close();
+	ankle_b.close();
+	left_knee_r.close();
+	left_knee_g.close();
+	left_knee_b.close();
+	right_knee_r.close();
+	right_knee_g.close();
+	right_knee_b.close();
+	left_heel_r.close();
+	left_heel_g.close();
+	left_heel_b.close();
+	right_heel_r.close();
+	right_heel_g.close();
+	right_heel_b.close();
+}
+
+/***********************************************/
+
 //Labelクラスを初期化
 void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 	Label *right_knee_ptr, Label *left_heel_ptr, Label *right_heel_ptr){
@@ -506,30 +596,36 @@ void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 		Vec3b* ptr = frame.ptr<Vec3b>(y);
 		for (int x = 0; x < width; x++){
 			vector<int> v{ x, y };
+			Vec3b val = ptr[x];
 			if (labels[v] == label_num_by_id[0]){
-				ankle_point.push_back(Point{ x, y });
+				histgram(0, val);
+	/*			ankle_point.push_back(Point{ x, y });
 				change_min_and_max_value(x, y, &max_points[0], &max_points[1],
-					&min_points[0], &min_points[1]);
+					&min_points[0], &min_points[1]);*/
 			}
 			else if (labels[v] == label_num_by_id[1]){
-				left_knee_point.push_back(Point{ x, y });
+				histgram(1, val);
+	/*			left_knee_point.push_back(Point{ x, y });
 				change_min_and_max_value(x, y, &max_points[2], &max_points[3],
-					&min_points[2], &min_points[3]);
+					&min_points[2], &min_points[3]);*/
 			}
 			else if (labels[v] == label_num_by_id[2]){
-				right_knee_point.push_back(Point{ x, y });
+				histgram(2, val);
+		/*		right_knee_point.push_back(Point{ x, y });
 				change_min_and_max_value(x, y, &max_points[4], &max_points[5],
-					&min_points[4], &min_points[5]);
+					&min_points[4], &min_points[5]);*/
 			}
 			else if (labels[v] == label_num_by_id[3]){
-				left_heel_point.push_back(Point{ x, y });
+				histgram(3, val);
+			/*	left_heel_point.push_back(Point{ x, y });
 				change_min_and_max_value(x, y, &max_points[6], &max_points[7],
-					&min_points[6], &min_points[7]);
+					&min_points[6], &min_points[7]);*/
 			}
 			else if (labels[v] == label_num_by_id[4]){
-				right_heel_point.push_back(Point{ x, y });
+				histgram(4, val);
+			/*	right_heel_point.push_back(Point{ x, y });
 				change_min_and_max_value(x, y, &max_points[8], &max_points[9],
-					&min_points[8], &min_points[9]);
+					&min_points[8], &min_points[9]);*/
 			}
 		}
 	}
@@ -777,6 +873,7 @@ int _tmain(int argc, _TCHAR* argv[])
 				import_labels();
 				init_label_class(frame, &ankle, &left_knee, &right_knee,
 					&left_heel, &right_heel);
+				output_histgram_data();
 				switch (FEATURE){
 				case 0:
 					evaluate_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
