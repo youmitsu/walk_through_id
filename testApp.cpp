@@ -10,27 +10,102 @@
 #include <opencv2\imgproc\imgproc.hpp>
 #include <opencv2\core\core.hpp>
 #include <unordered_map>
-#include "fftw3.h"
-#pragma comment(lib, "libfftw3-3.lib")
-#pragma comment(lib, "libfftw3f-3.lib")
-#pragma comment(lib, "libfftw3l-3.lib")
+//#include "fftw3.h"
+//#pragma comment(lib, "libfftw3-3.lib")
+//#pragma comment(lib, "libfftw3f-3.lib")
+//#pragma comment(lib, "libfftw3l-3.lib")
+#define PI 3.141592
 #define LOOKUP_SIZE 100                                  //ルックアップテーブルのデフォルトサイズ
 #define LABEL_KIND_NUM 5                                 //取得したいラベルの種類数
 #define AROUND_PIXEL_X 500                               //現在の座標の周りの探索する際のXの範囲
-#define AROUND_PIXEL_Y 80                               //                              Yの範囲
-#define USE_START_FRAME 1832                              //動画から使う最初のフレーム haneda:529, hoshino:400, shuno:207, kitazawa:1830
-#define USE_FRAME_NUM 38                                 //使用するフレーム数
-#define USE_END_FRAME USE_START_FRAME+USE_FRAME_NUM      //動画から使う最後のフレーム
-#define MODE 1                                           //0:ラベリングテストモード 1:追跡モード 2:再生モード
+#define AROUND_PIXEL_Y 80                                //                              Yの範囲
+#define ID_COUNT 4                                       //データとなる動画の数
+#define COLOR_DECIDE_LENGTH 6                            //色空間を定義するのに必要な要素数 ex){rs, re, gs, ge, bs, be}の配列
+#define MODE_KIND 3
+#define FEATURE_KIND 2
+
+/*******「誰の」「何の処理か」「特徴量」を設定********/
+#define ID 3                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
+#define MODE 1                                           //0:ラベリングモード 1:追跡モード 2:再生モード
+#define FEATURE 1                                        //0:股の角度、1:膝の角度
 
 using namespace std;
 using namespace cv;
 
-unordered_map<int, int> lookup_table;           //ルックアップテーブル
-int latest_label_num = 0;                       //ラベリングで使用する
-int width;                                      //画像の幅、高さ
-int height;
-vector<double> angles;                    //フレームごとの関節の角度
+/*************定数群(なんか怖いから配列系はconstにした)****************/
+const string video_urls[ID_COUNT] = { "Hoshino.avi", "Shuno.avi", "Haneda.avi", "Kitazawa.avi" };
+const int use_start_frames[ID_COUNT] = { 400, 207, 529, 1832 };
+const int use_frame_nums[ID_COUNT] = { 32, 32, 32, 38 };
+//ラベルごとの色空間を定義
+const unsigned int ankle_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 0, 50, 50, 255, 150, 255 },
+{ 0, 50, 50, 255, 150, 255 },
+{ 0, 50, 50, 255, 150, 255 },
+{ 0, 50, 50, 255, 150, 255 } };      //青
+const unsigned int left_knee_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 0, 80, 150, 255, 0, 80 },
+{ 0, 80, 150, 255, 0, 150 },
+{ 0, 80, 150, 255, 0, 150 },
+{ 0, 80, 150, 255, 0, 150 } };      //緑
+const unsigned int right_knee_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 180, 255, 170, 255, 0, 150 },
+{ 180, 255, 170, 255, 0, 150 },
+{ 180, 255, 170, 255, 0, 150 },
+{ 180, 255, 170, 255, 0, 150 } };     //黄色
+const unsigned int left_heel_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 180, 255, 170, 255, 0, 150 },
+{ 180, 255, 170, 255, 0, 150 },
+{ 180, 255, 170, 255, 0, 150 },
+{ 180, 255, 170, 255, 0, 150 } };      //黄色
+const unsigned int right_heel_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 100, 255, 0, 100, 100, 255 },
+{ 100, 255, 0, 100, 100, 255 },
+{ 100, 255, 0, 100, 100, 255 },
+{ 100, 255, 0, 100, 100, 255 } };     //紫
+
+const int labels_each_ids[ID_COUNT][LABEL_KIND_NUM] = { { 15, 25, 31, 38, 41 },
+{ 21, 34, 35, 44, 45 },
+{ 24, 33, 37, 41, 47 },
+{ 30, 50, 48, 57, 59 } };
+
+/************グローバル変数群***********/
+string video_url;                                            //使用する動画のURL
+int use_start_frame;                                         //動画から使う最初のフレーム
+int use_frame_num;                                           //使用するフレーム数
+int use_end_frame;                                           //動画から使う最後のフレーム
+vector<unsigned int> ankle_color_space;         //腰に該当する色空間
+vector<unsigned int> left_knee_color_space;     //左膝
+vector<unsigned int> right_knee_color_space;    //右膝
+vector<unsigned int> left_heel_color_space;     //左足首
+vector<unsigned int> right_heel_color_space;    //右足首
+int label_num_by_id[LABEL_KIND_NUM];                         //取得したい関節に該当するラベル番号を格納
+unordered_map<int, int> lookup_table;                        //ルックアップテーブル
+int latest_label_num = 0;                                    //ラベリングで使用する
+int width;                                                   //画像の幅
+int height;                                                  //高さ
+vector<double> angles;                                       //フレームごとの関節の角度
+const string output_labels_filename[ID_COUNT] = { "output_labels_hoshino.txt",  "output_labels_shuno.txt",
+"output_labels_haneda.txt", "output_labels_kitazawa.txt" };
+
+//グローバル変数の初期化
+void init_config(){
+	try{
+		if (ID < 0 || ID >= ID_COUNT){ throw "Exception: IDが範囲外です。"; }
+		if (MODE < 0 || MODE >= MODE_KIND){ throw "Exception: MODEが範囲外です。"; }
+		if (FEATURE < 0 || FEATURE >= FEATURE_KIND){ throw "Exception: FEATUREが範囲外です。"; }
+	}
+	catch (char *e){
+		cout << e;
+	}
+	video_url = video_urls[ID];
+	use_start_frame = use_start_frames[ID];
+	use_frame_num = use_frame_nums[ID];
+	use_end_frame = use_start_frame + use_frame_num;
+	//色空間初期化(このコードだめだねぇ)
+	for (int i = 0; i < COLOR_DECIDE_LENGTH; i++){
+		ankle_color_space.push_back(ankle_color_spaces[ID][i]);
+		left_knee_color_space.push_back(left_knee_color_spaces[ID][i]);
+		right_knee_color_space.push_back(right_knee_color_spaces[ID][i]);
+		left_heel_color_space.push_back(left_heel_color_spaces[ID][i]);
+		right_heel_color_space.push_back(right_heel_color_spaces[ID][i]);
+	}
+	for (int i = 0; i < LABEL_KIND_NUM; i++){ label_num_by_id[i] = labels_each_ids[ID][i]; }
+}
 
 //vectorをキーとするハッシュマップを使用するためのクラス
 class HashVI{
@@ -336,6 +411,63 @@ void labeling(Mat& frame){
 	}
 }
 
+//ラベリング結果をテキストファイルに書き出す
+void output_labels(){
+	try{
+		if (labels.empty()){ throw "Exception: labelsが空です"; }
+	}
+	catch (char* e){
+		cout << e;
+	}
+	ofstream out_labels(output_labels_filename[ID]);
+	for (int y = 0; y < height; y++){
+		for (int x = 0; x < width; x++){
+			vector<int> point{ x, y };
+			int label = labels[point];
+			if (label != 0){
+				out_labels << x << "," << y << "," << label << endl;
+			}
+		}
+	}
+	out_labels.close();
+}
+
+//ラベリング結果のファイルをインポートし、labelsに代入する
+void import_labels(){
+	ifstream input_labels_file;
+	input_labels_file.open(output_labels_filename[ID]);
+	if (input_labels_file.fail()){
+		cout << "Exception: ファイルが見つかりません。" << endl;
+		cin.get();
+	}
+
+	string str;
+	int x, y, l, c;
+	vector<int> p;
+	while (getline(input_labels_file, str)){
+		string tmp;
+		istringstream stream(str);
+		c = 0;
+		while (getline(stream, tmp, ',')){
+			if (c == 0){ x = stoi(tmp); }
+			else if (c == 1){ y = stoi(tmp); }
+			else{ l = stoi(tmp); }
+			c++;
+		}
+		p = { x, y };
+		labels[p] = l;
+	}
+
+	for (int y = 0; y < height; y++){
+		for (int x = 0; x < width; x++){
+			p = { x, y };
+			if (!labels[p]){
+				labels[p] = 0;
+			}
+		}
+	}
+}
+
 //最大値と最小値を求める
 void change_min_and_max_value(int x, int y, int *max_x, int *max_y,
 	int *min_x, int *min_y){
@@ -353,42 +485,6 @@ void change_min_and_max_value(int x, int y, int *max_x, int *max_y,
 	}
 }
 
-//ラベルごとの色空間を定義
-const vector<unsigned int> ankle_color_space{ 0, 50, 50, 255, 150, 255 };             //青
-const vector<unsigned int> left_knee_color_space{ 0, 80, 150, 255, 0, 150 };          //緑
-const vector<unsigned int> right_knee_color_space{ 180, 255, 170, 255, 0, 150 };     //黄色
-const vector<unsigned int> left_heel_color_space{ 180, 255, 170, 255, 0, 150 };      //黄色
-const vector<unsigned int> right_heel_color_space{ 100, 255, 0, 100, 100, 255 };     //紫
-
-/*星野さん
-腰  ：15
-右膝  ：25
-左膝  ：31
-右足首：38
-左足首：41*/
-
-/*周野さん
-腰    :21
-右膝　：34
-左膝　：35
-右足首：44
-左足首：45
-*/
-
-/*羽田さん
-腰　　：24
-左膝　：33
-右膝　：37
-左足首：41
-右足首：47
-*/
-/*北沢さん
-腰　　：30
-左膝　：50
-右膝　：48
-左足首：57
-右足首：59
-*/
 //Labelクラスを初期化
 void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 	Label *right_knee_ptr, Label *left_heel_ptr, Label *right_heel_ptr){
@@ -410,34 +506,30 @@ void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 		Vec3b* ptr = frame.ptr<Vec3b>(y);
 		for (int x = 0; x < width; x++){
 			vector<int> v{ x, y };
-			switch (labels[v]){
-			case 30:
+			if (labels[v] == label_num_by_id[0]){
 				ankle_point.push_back(Point{ x, y });
 				change_min_and_max_value(x, y, &max_points[0], &max_points[1],
 					&min_points[0], &min_points[1]);
-				break;
-			case 50:
+			}
+			else if (labels[v] == label_num_by_id[1]){
 				left_knee_point.push_back(Point{ x, y });
 				change_min_and_max_value(x, y, &max_points[2], &max_points[3],
 					&min_points[2], &min_points[3]);
-				break;
-			case 48:
+			}
+			else if (labels[v] == label_num_by_id[2]){
 				right_knee_point.push_back(Point{ x, y });
 				change_min_and_max_value(x, y, &max_points[4], &max_points[5],
 					&min_points[4], &min_points[5]);
-				break;
-			case 57:
+			}
+			else if (labels[v] == label_num_by_id[3]){
 				left_heel_point.push_back(Point{ x, y });
 				change_min_and_max_value(x, y, &max_points[6], &max_points[7],
 					&min_points[6], &min_points[7]);
-				break;
-			case 59:
+			}
+			else if (labels[v] == label_num_by_id[4]){
 				right_heel_point.push_back(Point{ x, y });
 				change_min_and_max_value(x, y, &max_points[8], &max_points[9],
 					&min_points[8], &min_points[9]);
-				break;
-			default:
-				break;
 			}
 		}
 	}
@@ -560,22 +652,32 @@ void set_cog_each_label(Label *ankle, Label *left_knee, Label *right_knee,
 	right_heel->calc_and_set_cog();
 }
 
+//3点を与えられたときに角度を求める
+//c:角度の基準点、a,b:それ以外
+void evaluate_angle(Point c, Point a, Point b){
+	int cx = c.x;
+	int cy = c.y;
+	int ax = a.x;
+	int ay = a.y;
+	int bx = b.x;
+	int by = b.y;
+	int ax_cx = ax - cx;
+	int ay_cy = ay - cy;
+	int bx_cx = bx - cx;
+	int by_cy = by - cy;
+	float cos = ((ax_cx*bx_cx) + (ay_cy*by_cy)) / ((sqrt((ax_cx*ax_cx) + (ay_cy*ay_cy))*sqrt((bx_cx*bx_cx) + (by_cy*by_cy))));
+	float angle = acosf(cos);
+	if (angle > PI / 2){ angle = PI-angle; }
+	angles.push_back(angle);
+}
 
 //腰と右膝、左膝から成す角度を求め、anglesにpushする
-void set_angle_ankle_and_knees(Point ankle, Point right_knee, Point left_knee){
-	int ankle_x = ankle.x;
-	int ankle_y = ankle.y;
-	int right_knee_x = right_knee.x;
-	int right_knee_y = right_knee.y;
-	int left_knee_x = left_knee.x;
-	int left_knee_y = left_knee.y;
-	int a1 = right_knee_x - ankle_x;
-	int a2 = right_knee_y - ankle_y;
-	int b1 = left_knee_x - ankle_x;
-	int b2 = left_knee_y - ankle_y;
-	float cos = ((a1*b1) + (a2*b2)) / ((sqrt((a1*a1) + (a2*a2))*sqrt((b1*b1) + (b2*b2))));
-	float angle = acosf(cos);
-	angles.push_back(angle);
+void evaluate_angle_ankle_and_knees(Point ankle, Point right_knee, Point left_knee){
+	evaluate_angle(ankle, right_knee, left_knee);
+}
+
+void evaluate_front_knee_angle(Point left_knee, Point ankle, Point left_heel){
+	evaluate_angle(left_knee, ankle, left_heel);
 }
 
 //ただの動画再生のためのメソッド
@@ -591,7 +693,7 @@ void play(VideoCapture& video){
 			break;
 		}
 		//対象のフレームまではスキップ
-		if (count < USE_START_FRAME){
+		if (count < use_start_frame){
 			continue;
 		}
 		cout << count << endl;
@@ -602,17 +704,19 @@ void play(VideoCapture& video){
 
 int _tmain(int argc, _TCHAR* argv[])
 {
+	init_config();
 	//ファイル出力用のファイル名定義
-	string filename[USE_FRAME_NUM];
+	string* filename;
+	filename = new string[use_frame_num];
 	ostringstream oss;
-	for (int i = 0; i < USE_FRAME_NUM; i++){
+	for (int i = 0; i < use_frame_num; i++){
 		oss << i << ".png";
 		string str = oss.str();
 		filename[i] = str;
 		oss.str("");
 	}
 
-	VideoCapture video("Kitazawa.avi");
+	VideoCapture video(video_url);
 	const int video_size = video.get(CV_CAP_PROP_FRAME_COUNT);  //ビデオのフレーム数
 
 	switch (MODE){
@@ -645,19 +749,20 @@ int _tmain(int argc, _TCHAR* argv[])
 			break;
 		}
 		//対象のフレームまではスキップ
-		if (count < USE_START_FRAME){
+		if (count < use_start_frame){
 			continue;
 		}
-		else if (count == USE_START_FRAME){
+		else if (count == use_start_frame){
 			//最初のフレームでラベリングとLabelクラスを初期化
-			labeling(frame);
 			if (MODE == 0){
-				for (int i = 0; i < label_list.size(); i++){
+				labeling(frame);
+				output_labels();
+		/*		for (int i = 0; i < label_list.size(); i++){
 					int label = label_list[i];
 					Vec3b label_color = label_color_list[label];
 					cout << label << ":" << label_color << endl;
-				}
-				for (int y = 0; y < height; y++){
+				}*/
+		/*		for (int y = 0; y < height; y++){
 					Vec3b* ptr = frame.ptr<Vec3b>(y);
 					for (int x = 0; x < width; x++){
 						vector<int> point{ x, y };
@@ -666,32 +771,58 @@ int _tmain(int argc, _TCHAR* argv[])
 							ptr[x] = label_color_list[label];
 						}
 					}
-				}
+				}*/
 			}
 			if (MODE == 1){
+				import_labels();
 				init_label_class(frame, &ankle, &left_knee, &right_knee,
 					&left_heel, &right_heel);
-				set_angle_ankle_and_knees(ankle.get_cog()[count - USE_START_FRAME],
-					right_knee.get_cog()[count - USE_START_FRAME], left_knee.get_cog()[count - USE_START_FRAME]);
+				switch (FEATURE){
+				case 0:
+					evaluate_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
+						right_knee.get_cog()[count - use_start_frame], left_knee.get_cog()[count - use_start_frame]);
+				case 1:
+					evaluate_front_knee_angle(right_knee.get_cog()[count - use_start_frame],
+						ankle.get_cog()[count - use_start_frame], right_heel.get_cog()[count - use_start_frame]);
+				default:
+					break;
+				}
+			/*	circle(dst_img, ankle.get_cog()[count - use_start_frame], 10, Scalar(255, 0, 0), -1);
+				circle(dst_img, left_knee.get_cog()[count - use_start_frame], 5, Scalar(255, 255, 255), -1);
+				circle(dst_img, left_knee.get_cog()[count - use_start_frame], 10, Scalar(0, 255, 0), -1);
+				circle(dst_img, left_heel.get_cog()[count - use_start_frame], 10, Scalar(0, 0, 255), -1);
+				circle(dst_img, right_heel.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 255), -1);*/
 			}
 		}
-		else if(count >= USE_END_FRAME){
+		else if(count >= use_end_frame){
 			//対象となるフレームが終わったらループを抜ける
 			break;
 		}
 		else{
-			change_prev_and_current(&ankle, &left_knee, &right_knee, &left_heel, &right_heel);
+			if (MODE == 1){
+				change_prev_and_current(&ankle, &left_knee, &right_knee, &left_heel, &right_heel);
 
-			search_same_points(frame, &ankle, &left_knee, &right_knee, &left_heel, &right_heel);
+				search_same_points(frame, &ankle, &left_knee, &right_knee, &left_heel, &right_heel);
 
-			search_around_points(frame, &ankle, &left_knee, &right_knee, &left_heel, &right_heel);
+				search_around_points(frame, &ankle, &left_knee, &right_knee, &left_heel, &right_heel);
 
-			set_cog_each_label(&ankle, &left_knee, &right_knee, &left_heel, &right_heel);
-
-			set_angle_ankle_and_knees(ankle.get_cog()[count - USE_START_FRAME],
-				right_knee.get_cog()[count - USE_START_FRAME], left_knee.get_cog()[count - USE_START_FRAME]);
+				set_cog_each_label(&ankle, &left_knee, &right_knee, &left_heel, &right_heel);
+				switch (FEATURE){
+				case 0:
+					evaluate_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
+						right_knee.get_cog()[count - use_start_frame], left_knee.get_cog()[count - use_start_frame]);
+				case 1:
+					evaluate_front_knee_angle(right_knee.get_cog()[count - use_start_frame],
+						ankle.get_cog()[count - use_start_frame], right_heel.get_cog()[count - use_start_frame]);
+				default:
+					break;
+				}
+			}
+			else{
+				break;
+			}
 		}
-		
+		/*
 		for (int y = 0; y < height; y++){
 			Vec3b* ptr = frame.ptr<Vec3b>(y);
 			for (int x = 0; x < width; x++){
@@ -704,17 +835,18 @@ int _tmain(int argc, _TCHAR* argv[])
 				}
 			}
 		}
-        
+        */
 		if (MODE == 1){
-			circle(dst_img, ankle.get_cog()[count - USE_START_FRAME], 5, Scalar(0, 0, 255), -1);
-			circle(dst_img, left_knee.get_cog()[count - USE_START_FRAME], 5, Scalar(0, 255, 0), -1);
-			circle(dst_img, right_knee.get_cog()[count - USE_START_FRAME], 5, Scalar(255, 0, 0), -1);
-			circle(dst_img, left_heel.get_cog()[count - USE_START_FRAME], 5, Scalar(0, 255, 255), -1);
-			circle(dst_img, right_heel.get_cog()[count - USE_START_FRAME], 5, Scalar(255, 0, 255), -1); 
+			/*
+			circle(dst_img, ankle.get_cog()[count - use_start_frame], 5, Scalar(0, 0, 255), -1);
+			circle(dst_img, left_knee.get_cog()[count - use_start_frame], 5, Scalar(0, 255, 0), -1);
+			circle(dst_img, right_knee.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 0), -1);
+			circle(dst_img, left_heel.get_cog()[count - use_start_frame], 5, Scalar(0, 255, 255), -1);
+			circle(dst_img, right_heel.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 255), -1);*/
 		}
 
 		try{
-			imwrite(filename[count - USE_START_FRAME], dst_img);
+			imwrite(filename[count - use_start_frame], dst_img);
 		}
 		catch (runtime_error& ex){
 			printf("failure");
@@ -725,7 +857,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	}
 	
 	if (MODE == 1){
-		for (int i = 0; i < USE_FRAME_NUM; i++){
+		for (int i = 0; i < use_frame_num; i++){
 			cout << i << "フレーム目:" << angles[i] << endl;
 			ofs << i << ", " << angles[i] << endl;
 			circle(dst_img, ankle.get_cog()[i], 1, Scalar(0, 0, 255), -1);
@@ -744,45 +876,52 @@ int _tmain(int argc, _TCHAR* argv[])
 		return 1;
 	}
 	/**********フーリエ変換とプロット***********/
-	FILE *fp = _popen("wgnuplot_pipes.exe", "w");
-	if (fp == NULL){
-		return -1;
-	}
+	if (MODE == 1){
+		FILE *fp = _popen("wgnuplot_pipes.exe", "w");
+		if (fp == NULL){
+			return -1;
+		}
 
-	const int N = USE_FRAME_NUM;
+		const int N = use_frame_num;
 
-	/*
-	fftw_complex *in, *out;
-	fftw_plan p;
-	in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex)* N);
-	out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex)* N);
-	p = fftw_plan_dft_1d(N, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
+		/*
+		fftw_complex *in, *out;
+		fftw_plan p;
+		in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex)* N);
+		out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex)* N);
+		p = fftw_plan_dft_1d(N, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
 
-	for (int i = 0; i<N; i++){
+		for (int i = 0; i<N; i++){
 		in[i][0] = angles[i];
 		in[i][1] = 0;
+		}
+		fftw_execute(p);
+		*/
+		ofstream fout("output.dat");
+		//double scale = 1. / N;
+		for (int i = 0; i < N; i++){
+			//	fout << i << " " << abs(out[i][0] * scale) << " " << abs(out[i][1] * scale) << endl;
+			fout << i << " " << angles[i] << endl;
+		}
+		fout.close();
+		/*
+		fftw_destroy_plan(p);
+		fftw_free(in);
+		fftw_free(out);
+		*/
+		fputs("plot \"output.dat\"", fp);
+		fflush(fp);
+		cin.get();
+		_pclose(fp);
 	}
-	fftw_execute(p);
-	*/
-	ofstream fout("output.dat");
-	//double scale = 1. / N;
-	for (int i = 0; i<N; i++){
-	//	fout << i << " " << abs(out[i][0] * scale) << " " << abs(out[i][1] * scale) << endl;
-		fout << i << " " << angles[i] << endl;
-	}
-	fout.close();
-	/*
-	fftw_destroy_plan(p);
-	fftw_free(in);
-	fftw_free(out);
-	*/
-	fputs("plot \"output.dat\"", fp);
-	fflush(fp);
-	cin.get();
-	_pclose(fp);
 	/**********************************************/
+
+	delete[] filename;
+
 	namedWindow("ラベリング結果");
 	imshow("ラベリング結果", dst_img);
+	cout << "プログラムの終了" << endl;
+	cin.get();
 	waitKey(0);
 	return 0;
 }
