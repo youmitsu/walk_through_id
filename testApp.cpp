@@ -486,11 +486,11 @@ void change_min_and_max_value(int x, int y, int *max_x, int *max_y,
 }
 
 /***********ƒqƒXƒgƒOƒ‰ƒ€‹‚ß‚é***************/
-int ankle_hist[3][255];
-int left_knee_hist[3][255];
-int right_knee_hist[3][255];
-int left_heel_hist[3][255];
-int right_heel_hist[3][255];
+int ankle_hist[3][255] = {};
+int left_knee_hist[3][255] = {};
+int right_knee_hist[3][255] = {};
+int left_heel_hist[3][255] = {};
+int right_heel_hist[3][255] = {};
 
 void histgram(int part, Vec3b val){
 	int r = val[2];
