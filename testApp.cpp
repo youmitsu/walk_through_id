@@ -18,7 +18,7 @@
 #define LOOKUP_SIZE 100                                  //ルックアップテーブルのデフォルトサイズ
 #define LABEL_KIND_NUM 5                                 //取得したいラベルの種類数
 #define AROUND_PIXEL_X 500                               //現在の座標の周りの探索する際のXの範囲
-#define AROUND_PIXEL_Y 80                                //                              Yの範囲
+#define AROUND_PIXEL_Y 60                                //                              Yの範囲
 #define ID_COUNT 4                                       //データとなる動画の数
 #define COLOR_DECIDE_LENGTH 6                            //色空間を定義するのに必要な要素数 ex){rs, re, gs, ge, bs, be}の配列
 #define MODE_KIND 3
@@ -28,6 +28,7 @@
 #define ID 3                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
 #define MODE 1                                           //0:ラベリングモード 1:追跡モード 2:再生モード
 #define FEATURE 1                                        //0:股の角度、1:膝の角度
+#define HIST 0
 
 using namespace std;
 using namespace cv;
@@ -42,21 +43,21 @@ const unsigned int ankle_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 0, 50
 { 0, 50, 50, 255, 150, 255 },
 { 0, 50, 50, 255, 150, 255 } };      //青
 const unsigned int left_knee_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 0, 80, 150, 255, 0, 80 },
-{ 0, 80, 150, 255, 0, 150 },
-{ 0, 80, 150, 255, 0, 150 },
-{ 0, 80, 150, 255, 0, 150 } };      //緑
+{ 20, 80, 75, 230, 80, 170 },
+{ 20, 80, 75, 230, 80, 170 },
+{ 20, 80, 75, 230, 80, 170 } };      //緑
 const unsigned int right_knee_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 180, 255, 170, 255, 0, 150 },
-{ 180, 255, 170, 255, 0, 150 },
-{ 180, 255, 170, 255, 0, 150 },
-{ 180, 255, 170, 255, 0, 150 } };     //黄色
+{ 130, 200, 80, 225, 10, 70 },
+{ 130, 200, 80, 225, 10, 70 },
+{ 130, 200, 80, 225, 10, 70 } };     //黄色
 const unsigned int left_heel_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 180, 255, 170, 255, 0, 150 },
-{ 180, 255, 170, 255, 0, 150 },
-{ 180, 255, 170, 255, 0, 150 },
-{ 180, 255, 170, 255, 0, 150 } };      //黄色
+{ 80, 190, 95, 180, 25, 100 },
+{ 80, 190, 95, 180, 25, 100 },
+{ 80, 190, 95, 180, 25, 100 } };      //黄色
 const unsigned int right_heel_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 100, 255, 0, 100, 100, 255 },
-{ 100, 255, 0, 100, 100, 255 },
-{ 100, 255, 0, 100, 100, 255 },
-{ 100, 255, 0, 100, 100, 255 } };     //紫
+{ 60, 120, 45, 90, 101, 160 },
+{ 60, 120, 45, 90, 101, 160 },
+{ 60, 120, 45, 90, 101, 160 } };     //紫
 
 const int labels_each_ids[ID_COUNT][LABEL_KIND_NUM] = { { 15, 25, 31, 38, 41 },
 { 21, 34, 35, 44, 45 },
@@ -501,22 +502,27 @@ void histgram(int part, Vec3b val){
 		ankle_hist[0][r] += 1;
 		ankle_hist[1][g] += 1;
 		ankle_hist[2][b] += 1;
+		break;
 	case 1:
 		left_knee_hist[0][r] += 1;
 		left_knee_hist[1][g] += 1;
 		left_knee_hist[2][b] += 1;
+		break;
 	case 2:
 		right_knee_hist[0][r] += 1;
 		right_knee_hist[1][g] += 1;
 		right_knee_hist[2][b] += 1;
+		break;
 	case 3:
 		left_heel_hist[0][r] += 1;
 		left_heel_hist[1][g] += 1;
 		left_heel_hist[2][b] += 1;
+		break;
 	case 4:
 		right_heel_hist[0][r] += 1;
 		right_heel_hist[1][g] += 1;
 		right_heel_hist[2][b] += 1;
+		break;
 	default:
 		cout << "おいおいちょっと待て" << endl;
 		break;
@@ -598,37 +604,59 @@ void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 			vector<int> v{ x, y };
 			Vec3b val = ptr[x];
 			if (labels[v] == label_num_by_id[0]){
-				histgram(0, val);
-	/*			ankle_point.push_back(Point{ x, y });
-				change_min_and_max_value(x, y, &max_points[0], &max_points[1],
-					&min_points[0], &min_points[1]);*/
+				if (HIST == 1){
+					histgram(0, val);
+				}
+				else{
+					ankle_point.push_back(Point{ x, y });
+					change_min_and_max_value(x, y, &max_points[0], &max_points[1],
+						&min_points[0], &min_points[1]);
+				}
+				
 			}
 			else if (labels[v] == label_num_by_id[1]){
-				histgram(1, val);
-	/*			left_knee_point.push_back(Point{ x, y });
-				change_min_and_max_value(x, y, &max_points[2], &max_points[3],
-					&min_points[2], &min_points[3]);*/
+				if (HIST == 1){
+					histgram(1, val);
+				}
+				else{
+					left_knee_point.push_back(Point{ x, y });
+					change_min_and_max_value(x, y, &max_points[2], &max_points[3],
+						&min_points[2], &min_points[3]);
+				}
 			}
 			else if (labels[v] == label_num_by_id[2]){
-				histgram(2, val);
-		/*		right_knee_point.push_back(Point{ x, y });
-				change_min_and_max_value(x, y, &max_points[4], &max_points[5],
-					&min_points[4], &min_points[5]);*/
+				if (HIST == 1){
+					histgram(2, val);
+				}
+				else{
+					right_knee_point.push_back(Point{ x, y });
+					change_min_and_max_value(x, y, &max_points[4], &max_points[5],
+						&min_points[4], &min_points[5]);
+				}
 			}
 			else if (labels[v] == label_num_by_id[3]){
-				histgram(3, val);
-			/*	left_heel_point.push_back(Point{ x, y });
-				change_min_and_max_value(x, y, &max_points[6], &max_points[7],
-					&min_points[6], &min_points[7]);*/
+				if (HIST == 1){
+					histgram(3, val);
+				}
+				else{
+					left_heel_point.push_back(Point{ x, y });
+					change_min_and_max_value(x, y, &max_points[6], &max_points[7],
+						&min_points[6], &min_points[7]);
+				}
 			}
 			else if (labels[v] == label_num_by_id[4]){
-				histgram(4, val);
-			/*	right_heel_point.push_back(Point{ x, y });
-				change_min_and_max_value(x, y, &max_points[8], &max_points[9],
-					&min_points[8], &min_points[9]);*/
+				if (HIST == 1){
+					histgram(4, val);
+				}
+				else{
+					right_heel_point.push_back(Point{ x, y });
+				    change_min_and_max_value(x, y, &max_points[8], &max_points[9],
+						&min_points[8], &min_points[9]);
+				}
 			}
 		}
 	}
+
 	Point cogs[5];
 	for (int i = 0; i < LABEL_KIND_NUM; i++){
 		int x = (max_points[i*2] + min_points[i*2]) / 2;
@@ -873,7 +901,7 @@ int _tmain(int argc, _TCHAR* argv[])
 				import_labels();
 				init_label_class(frame, &ankle, &left_knee, &right_knee,
 					&left_heel, &right_heel);
-				output_histgram_data();
+			//	output_histgram_data();
 				switch (FEATURE){
 				case 0:
 					evaluate_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
