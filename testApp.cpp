@@ -25,7 +25,7 @@
 #define FEATURE_KIND 2
 
 /*******「誰の」「何の処理か」「特徴量」を設定********/
-#define ID 3                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
+#define ID 2                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
 #define MODE 1                                           //0:ラベリングモード 1:追跡モード 2:再生モード
 #define FEATURE 1                                        //0:股の角度、1:膝の角度
 #define HIST 0
@@ -35,8 +35,8 @@ using namespace cv;
 
 /*************定数群(なんか怖いから配列系はconstにした)****************/
 const string video_urls[ID_COUNT] = { "Hoshino.avi", "Shuno.avi", "Haneda.avi", "Kitazawa.avi" };
-const int use_start_frames[ID_COUNT] = { 400, 207, 529, 1832 };
-const int use_frame_nums[ID_COUNT] = { 32, 32, 32, 38 };
+const int use_start_frames[ID_COUNT] = { 400, 210, 532, 1832 };
+const int use_frame_nums[ID_COUNT] = { 32, 38, 36, 38 };
 //ラベルごとの色空間を定義
 const unsigned int ankle_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 0, 50, 50, 255, 150, 255 },
 { 0, 50, 50, 255, 150, 255 },
@@ -60,8 +60,8 @@ const unsigned int right_heel_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 
 { 60, 120, 45, 90, 101, 160 } };     //紫
 
 const int labels_each_ids[ID_COUNT][LABEL_KIND_NUM] = { { 15, 25, 31, 38, 41 },
-{ 21, 34, 35, 44, 45 },
-{ 24, 33, 37, 41, 47 },
+{ 21, 37, 38, 49, 47 },
+{ 25, 38, 39, 48, 44 },
 { 30, 50, 48, 57, 59 } };
 
 /************グローバル変数群***********/
@@ -881,12 +881,12 @@ int _tmain(int argc, _TCHAR* argv[])
 			if (MODE == 0){
 				labeling(frame);
 				output_labels();
-		/*		for (int i = 0; i < label_list.size(); i++){
+				for (int i = 0; i < label_list.size(); i++){
 					int label = label_list[i];
 					Vec3b label_color = label_color_list[label];
 					cout << label << ":" << label_color << endl;
-				}*/
-		/*		for (int y = 0; y < height; y++){
+				}
+				for (int y = 0; y < height; y++){
 					Vec3b* ptr = frame.ptr<Vec3b>(y);
 					for (int x = 0; x < width; x++){
 						vector<int> point{ x, y };
@@ -895,7 +895,7 @@ int _tmain(int argc, _TCHAR* argv[])
 							ptr[x] = label_color_list[label];
 						}
 					}
-				}*/
+				}
 			}
 			if (MODE == 1){
 				import_labels();
