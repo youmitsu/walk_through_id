@@ -16,7 +16,7 @@
 //#pragma comment(lib, "libfftw3l-3.lib")
 #define PI 3.141592
 #define LOOKUP_SIZE 100                                  //ルックアップテーブルのデフォルトサイズ
-#define LABEL_KIND_NUM 5                                 //取得したいラベルの種類数
+#define LABEL_KIND_NUM 6                                 //取得したいラベルの種類数
 #define AROUND_PIXEL_X 500                               //現在の座標の周りの探索する際のXの範囲
 #define AROUND_PIXEL_Y 60                                //                              Yの範囲
 #define ID_COUNT 4                                       //データとなる動画の数
@@ -58,11 +58,15 @@ const unsigned int right_heel_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 
 { 60, 120, 45, 90, 101, 160 },
 { 60, 120, 45, 90, 101, 160 },
 { 60, 120, 45, 90, 101, 160 } };     //紫
+const unsigned int head_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 20, 80, 75, 230, 80, 170 },
+{ 0, 80, 150, 255, 0, 80 },
+{ 0, 80, 150, 255, 0, 80 },
+{ 20, 80, 75, 230, 80, 170 } };      //緑
 
-const int labels_each_ids[ID_COUNT][LABEL_KIND_NUM] = { { 15, 25, 31, 38, 41 },
-{ 21, 37, 38, 49, 47 },
-{ 25, 38, 39, 48, 44 },
-{ 30, 50, 48, 57, 59 } };
+const int labels_each_ids[ID_COUNT][LABEL_KIND_NUM] = { { 15, 25, 31, 38, 41, 2 },
+{ 21, 37, 38, 49, 47, 1 },
+{ 25, 38, 39, 48, 44, 1 },
+{ 30, 50, 48, 57, 59, 1 } };
 
 /************グローバル変数群***********/
 string video_url;                                            //使用する動画のURL
@@ -74,6 +78,7 @@ vector<unsigned int> left_knee_color_space;     //左膝
 vector<unsigned int> right_knee_color_space;    //右膝
 vector<unsigned int> left_heel_color_space;     //左足首
 vector<unsigned int> right_heel_color_space;    //右足首
+vector<unsigned int> head_color_space;          //頭
 int label_num_by_id[LABEL_KIND_NUM];                         //取得したい関節に該当するラベル番号を格納
 unordered_map<int, int> lookup_table;                        //ルックアップテーブル
 int latest_label_num = 0;                                    //ラベリングで使用する
@@ -104,6 +109,7 @@ void init_config(){
 		right_knee_color_space.push_back(right_knee_color_spaces[ID][i]);
 		left_heel_color_space.push_back(left_heel_color_spaces[ID][i]);
 		right_heel_color_space.push_back(right_heel_color_spaces[ID][i]);
+		head_color_space.push_back(head_color_spaces[ID][i]);
 	}
 	for (int i = 0; i < LABEL_KIND_NUM; i++){ label_num_by_id[i] = labels_each_ids[ID][i]; }
 }
@@ -581,16 +587,16 @@ void output_histgram_data(){
 
 /***********************************************/
 
-//Labelクラスを初期化
+//Labelクラスを初期化(※リファクタリングしたいなー)
 void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
-	Label *right_knee_ptr, Label *left_heel_ptr, Label *right_heel_ptr){
+	Label *right_knee_ptr, Label *left_heel_ptr, Label *right_heel_ptr, Label *head_ptr){
 	int height = frame.rows;
 	int width = frame.cols;
 	
 	//ラベルごとの最大値の{ankle[x],ankle[y],left_knee[x],left_knee[y],x,y,...,x,y}
-	int max_points[10] = {}; 
+	int max_points[12] = {}; 
 	//ラベルごとの最小値の{ankle[x],ankle[y],left_knee[x],left_knee[y],x,y,...,x,y}
-	int min_points[10];
+	int min_points[12];
 	for (int i = 0; i < 10; i++){ min_points[i] = 100000000; }
 
 	vector<Point> ankle_point;
@@ -598,6 +604,7 @@ void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 	vector<Point> right_knee_point;
 	vector<Point> left_heel_point;
 	vector<Point> right_heel_point;
+	vector<Point> head_point;
 	for (int y = 0; y < height; y++){
 		Vec3b* ptr = frame.ptr<Vec3b>(y);
 		for (int x = 0; x < width; x++){
@@ -654,10 +661,20 @@ void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 						&min_points[8], &min_points[9]);
 				}
 			}
+			else if (labels[v] == label_num_by_id[5]){
+				if (HIST == 1){
+					histgram(5, val);
+				}
+				else{
+					head_point.push_back(Point{ x, y });
+					change_min_and_max_value(x, y, &max_points[10], &max_points[11],
+						&min_points[10], &min_points[11]);
+				}
+			}
 		}
 	}
 
-	Point cogs[5];
+	Point cogs[LABEL_KIND_NUM];
 	for (int i = 0; i < LABEL_KIND_NUM; i++){
 		int x = (max_points[i*2] + min_points[i*2]) / 2;
 	    int y = (max_points[i*2+1] + min_points[i*2+1]) / 2;
@@ -670,17 +687,19 @@ void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 	Label right_knee('右膝', right_knee_point, cogs[2], right_knee_color_space);
 	Label left_heel('左首', left_heel_point, cogs[3], left_heel_color_space);
 	Label right_heel('右首', right_heel_point, cogs[4], right_heel_color_space);
+	Label head('頭', head_point, cogs[5], head_color_space);
 
 	*ankle_ptr = ankle;
 	*left_knee_ptr = left_knee;
 	*right_knee_ptr = right_knee;
 	*left_heel_ptr = left_heel;
 	*right_heel_ptr = right_heel;
+	*head_ptr = head;
 }
 
 //全ラベルのprev_pointsとcurrent_pointsを入れ替え,current_pointsをクリアする
 void change_prev_and_current(Label *ankle, Label *left_knee, Label *right_knee,
-	Label *left_heel, Label *right_heel){
+	Label *left_heel, Label *right_heel, Label *head){
 	ankle->clear_prev_points();
 	ankle->change_ptr();
 	left_knee->clear_prev_points();
@@ -691,6 +710,8 @@ void change_prev_and_current(Label *ankle, Label *left_knee, Label *right_knee,
 	left_heel->change_ptr();
 	right_heel->clear_prev_points();
 	right_heel->change_ptr();
+	head->clear_prev_points();
+	head->change_ptr();
 }
 
 //prev_pointsとcurrent_pointsで被っている点を探索し、被っていればcurrent_pointsにセットする
@@ -705,7 +726,7 @@ void find_same_point(Label *label, Point p){
 
 //ラベルごとにfind_same_pointを実行する
 void search_same_points(Mat& frame, Label *ankle, Label *left_knee,
-	Label *right_knee, Label *left_heel, Label *right_heel){
+	Label *right_knee, Label *left_heel, Label *right_heel, Label *head){
 	for (int y = 0; y < height; y++){
 		unsigned char* ptr = frame.ptr<unsigned char>(y);
 		for (int x = 0; x < width; x++){
@@ -716,6 +737,7 @@ void search_same_points(Mat& frame, Label *ankle, Label *left_knee,
 				find_same_point(right_knee, p);
 				find_same_point(left_heel, p);
 				find_same_point(right_heel, p);
+				find_same_point(head, p);
 			}
 		}
 	}
@@ -758,22 +780,24 @@ void search_around_points_each_labels(Mat& frame, Label *label){
 
 //ラベルごとに周りの点を探索する
 void search_around_points(Mat& frame, Label *ankle, Label *left_knee,
-    Label *right_knee, Label *left_heel, Label *right_heel){
+    Label *right_knee, Label *left_heel, Label *right_heel, Label *head){
 	search_around_points_each_labels(frame, ankle);
 	search_around_points_each_labels(frame, left_knee);
 	search_around_points_each_labels(frame, right_knee);
 	search_around_points_each_labels(frame, left_heel);
 	search_around_points_each_labels(frame, right_heel);
+	search_around_points_each_labels(frame, head);
 }
 
 //ラベルごとに重心をセットする
 void set_cog_each_label(Label *ankle, Label *left_knee, Label *right_knee,
-	Label *left_heel, Label *right_heel){
+	Label *left_heel, Label *right_heel, Label *head){
 	ankle->calc_and_set_cog();
 	left_knee->calc_and_set_cog();
 	right_knee->calc_and_set_cog();
 	left_heel->calc_and_set_cog();
 	right_heel->calc_and_set_cog();
+	head->calc_and_set_cog();
 }
 
 //3点を与えられたときに角度を求める
@@ -856,6 +880,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	Label right_knee;
 	Label left_heel;
 	Label right_heel;
+	Label head;
 
 	ofstream ofs("output_angles.txt");
 
@@ -900,7 +925,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			if (MODE == 1){
 				import_labels();
 				init_label_class(frame, &ankle, &left_knee, &right_knee,
-					&left_heel, &right_heel);
+					&left_heel, &right_heel, &head);
 			//	output_histgram_data();
 				switch (FEATURE){
 				case 0:
@@ -925,13 +950,13 @@ int _tmain(int argc, _TCHAR* argv[])
 		}
 		else{
 			if (MODE == 1){
-				change_prev_and_current(&ankle, &left_knee, &right_knee, &left_heel, &right_heel);
+				change_prev_and_current(&ankle, &left_knee, &right_knee, &left_heel, &right_heel, &head);
 
-				search_same_points(frame, &ankle, &left_knee, &right_knee, &left_heel, &right_heel);
+				search_same_points(frame, &ankle, &left_knee, &right_knee, &left_heel, &right_heel, &head);
 
-				search_around_points(frame, &ankle, &left_knee, &right_knee, &left_heel, &right_heel);
+				search_around_points(frame, &ankle, &left_knee, &right_knee, &left_heel, &right_heel, &head);
 
-				set_cog_each_label(&ankle, &left_knee, &right_knee, &left_heel, &right_heel);
+				set_cog_each_label(&ankle, &left_knee, &right_knee, &left_heel, &right_heel, &head);
 				switch (FEATURE){
 				case 0:
 					evaluate_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
@@ -968,6 +993,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			circle(dst_img, right_knee.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 0), -1);
 			circle(dst_img, left_heel.get_cog()[count - use_start_frame], 5, Scalar(0, 255, 255), -1);
 			circle(dst_img, right_heel.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 255), -1);
+			circle(dst_img, head.get_cog()[count - use_start_frame], 5, Scalar(255, 255, 0), -1);
 		}
 
 		try{
@@ -990,6 +1016,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			circle(dst_img, right_knee.get_cog()[i], 1, Scalar(255, 0, 0), -1);
 			circle(dst_img, left_heel.get_cog()[i], 1, Scalar(255, 217, 0), -1);
 			circle(dst_img, right_heel.get_cog()[i], 1, Scalar(255, 0, 255), -1);
+			circle(dst_img, head.get_cog()[i], 1, Scalar(255, 255, 0), -1);
 		}
 	}
 	
