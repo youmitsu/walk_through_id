@@ -20,15 +20,15 @@
 #define AROUND_PIXEL_X 500                               //現在の座標の周りの探索する際のXの範囲
 #define AROUND_PIXEL_Y 60                                //                              Yの範囲
 #define ID_COUNT 4                                       //データとなる動画の数
-#define COLOR_DECIDE_LENGTH 6                            //色空間を定義するのに必要な要素数 ex){rs, re, gs, ge, bs, be}の配列
+#define COLOR_DECIDE_LENGTH 9                            //色空間を定義するのに必要な要素数 ex){rs, re, gs, ge, bs, be}の配列
 #define MODE_KIND 3
 #define FEATURE_KIND 2
 
 /*******「誰の」「何の処理か」「特徴量」を設定********/
-#define ID 2                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
+#define ID 1                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
 #define MODE 1                                           //0:ラベリングモード 1:追跡モード 2:再生モード
 #define FEATURE 1                                        //0:股の角度、1:膝の角度
-#define HIST 0
+#define HIST 1
 
 using namespace std;
 using namespace cv;
@@ -38,12 +38,15 @@ const string video_urls[ID_COUNT] = { "Hoshino.avi", "Shuno.avi", "Haneda.avi", 
 const int use_start_frames[ID_COUNT] = { 400, 210, 532, 1832 };
 const int use_frame_nums[ID_COUNT] = { 32, 38, 36, 38 };
 //ラベルごとの色空間を定義
+//{(r-b空間中心点x), (r-b空間中心点y), (r-b空間X軸長), (r-b空間Y軸長), (r-b空間回転角θ),
+//(g-b空間中心点x), (g-b空間中心点y), (g-b空間X軸長), (g-b空間Y軸長), (g-b空間回転角),
+//(r-g空間中心点x), (r-g空間中心点y), (r-g空間X軸長), (r-g空間Y軸長), (r-g空間回転角)}
 const unsigned int ankle_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 0, 50, 50, 255, 150, 255 },
 { 0, 50, 50, 255, 150, 255 },
 { 0, 50, 50, 255, 150, 255 },
 { 0, 50, 50, 255, 150, 255 } };      //青
 const unsigned int left_knee_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 0, 80, 150, 255, 0, 80 },
-{ 20, 80, 75, 230, 80, 170 },
+{ 140, 75, 60, 20, 10 },
 { 20, 80, 75, 230, 80, 170 },
 { 20, 80, 75, 230, 80, 170 } };      //緑
 const unsigned int right_knee_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 180, 255, 170, 255, 0, 150 },
@@ -493,11 +496,11 @@ void change_min_and_max_value(int x, int y, int *max_x, int *max_y,
 }
 
 /***********ヒストグラム求める***************/
-int ankle_hist[3][255] = {};
-int left_knee_hist[3][255] = {};
-int right_knee_hist[3][255] = {};
-int left_heel_hist[3][255] = {};
-int right_heel_hist[3][255] = {};
+int ankle_hist[255][255][255] = {};
+int left_knee_hist[255][255][255] = {};
+int right_knee_hist[255][255][255] = {};
+int left_heel_hist[255][255][255] = {};
+int right_heel_hist[255][255][255] = {};
 
 void histgram(int part, Vec3b val){
 	int r = val[2];
@@ -505,29 +508,19 @@ void histgram(int part, Vec3b val){
 	int b = val[0];
 	switch (part){
 	case 0:
-		ankle_hist[0][r] += 1;
-		ankle_hist[1][g] += 1;
-		ankle_hist[2][b] += 1;
+		ankle_hist[r][g][b] += 1;
 		break;
 	case 1:
-		left_knee_hist[0][r] += 1;
-		left_knee_hist[1][g] += 1;
-		left_knee_hist[2][b] += 1;
+		left_knee_hist[r][g][b] += 1;
 		break;
 	case 2:
-		right_knee_hist[0][r] += 1;
-		right_knee_hist[1][g] += 1;
-		right_knee_hist[2][b] += 1;
+		right_knee_hist[r][g][b] += 1;
 		break;
 	case 3:
-		left_heel_hist[0][r] += 1;
-		left_heel_hist[1][g] += 1;
-		left_heel_hist[2][b] += 1;
+		left_heel_hist[r][g][b] += 1;
 		break;
 	case 4:
-		right_heel_hist[0][r] += 1;
-		right_heel_hist[1][g] += 1;
-		right_heel_hist[2][b] += 1;
+		right_heel_hist[r][g][b] += 1;
 		break;
 	default:
 		cout << "おいおいちょっと待て" << endl;
@@ -536,53 +529,27 @@ void histgram(int part, Vec3b val){
 }
 
 void output_histgram_data(){
-	ofstream ankle_r("ankle_histgram_r.txt");
-	ofstream ankle_g("ankle_histgram_g.txt");
-	ofstream ankle_b("ankle_histgram_b.txt");
-	ofstream left_knee_r("left_knee_histgram_r.txt");
-	ofstream left_knee_g("left_knee_histgram_g.txt");
-	ofstream left_knee_b("left_knee_histgram_b.txt");
-	ofstream right_knee_r("right_knee_histgram_r.txt");
-	ofstream right_knee_g("right_knee_histgram_g.txt");
-	ofstream right_knee_b("right_knee_histgram_b.txt");
-	ofstream left_heel_r("left_heel_histgram_r.txt");
-	ofstream left_heel_g("left_heel_histgram_g.txt");
-	ofstream left_heel_b("left_heel_histgram_b.txt");
-	ofstream right_heel_r("right_heel_histgram_r.txt");
-	ofstream right_heel_g("right_heel_histgram_g.txt");
-	ofstream right_heel_b("right_heel_histgram_b.txt");
+	ofstream ankle("ankle_histgram.dat");
+	ofstream left_knee("left_knee_histgram.dat");
+	ofstream right_knee("right_knee_histgram.dat");
+	ofstream left_heel("left_heel_histgram.dat");
+	ofstream right_heel("right_heel_histgram.dat");
 	for (int i = 0; i < 255; i++){
-		ankle_r << ankle_hist[0][i] << endl;
-		ankle_g << ankle_hist[1][i] << endl;
-		ankle_b << ankle_hist[2][i] << endl;
-		left_knee_r << left_knee_hist[0][i] << endl;
-		left_knee_g << left_knee_hist[1][i] << endl;
-		left_knee_b << left_knee_hist[2][i] << endl;
-		right_knee_r << right_knee_hist[0][i] << endl;
-		right_knee_g << right_knee_hist[1][i] << endl;
-		right_knee_b << right_knee_hist[2][i] << endl;
-		left_heel_r << left_heel_hist[0][i] << endl;
-		left_heel_g << left_heel_hist[1][i] << endl;
-		left_heel_b << left_heel_hist[2][i] << endl;
-		right_heel_r << right_heel_hist[0][i] << endl;
-		right_heel_g << right_heel_hist[1][i] << endl;
-		right_heel_b << right_heel_hist[2][i] << endl;
+		for (int j = 0; j < 255; j++){
+			for (int k = 0; k < 255; k++){
+				if (ankle_hist[i][j][k] != 0){ ankle << i << " " << j << " " << k << endl; }
+				if (left_knee_hist[i][j][k] != 0){ left_knee << i << " " << j << " " << k << endl; }
+				if (right_knee_hist[i][j][k] != 0){ right_knee << i << " " << j << " " << k << endl; }
+				if (left_heel_hist[i][j][k] != 0){ left_heel << i << " " << j << " " << k << endl; }
+				if (right_heel_hist[i][j][k] != 0){ right_heel << i << " " << j << " " << k << endl; }
+			}
+		}
 	}
-	ankle_r.close();
-	ankle_g.close();
-	ankle_b.close();
-	left_knee_r.close();
-	left_knee_g.close();
-	left_knee_b.close();
-	right_knee_r.close();
-	right_knee_g.close();
-	right_knee_b.close();
-	left_heel_r.close();
-	left_heel_g.close();
-	left_heel_b.close();
-	right_heel_r.close();
-	right_heel_g.close();
-	right_heel_b.close();
+	ankle.close();
+	left_knee.close();
+	right_knee.close();
+	left_heel.close();
+	right_heel.close();
 }
 
 /***********************************************/
@@ -663,7 +630,7 @@ void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 			}
 			else if (labels[v] == label_num_by_id[5]){
 				if (HIST == 1){
-					histgram(5, val);
+					//histgram(5, val);
 				}
 				else{
 					head_point.push_back(Point{ x, y });
@@ -926,7 +893,13 @@ int _tmain(int argc, _TCHAR* argv[])
 				import_labels();
 				init_label_class(frame, &ankle, &left_knee, &right_knee,
 					&left_heel, &right_heel, &head);
-			//	output_histgram_data();
+
+				//ヒストグラムの出力。終わったらbreak
+				if (HIST == 1){
+					output_histgram_data();
+					break;
+				}
+
 				switch (FEATURE){
 				case 0:
 					evaluate_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
