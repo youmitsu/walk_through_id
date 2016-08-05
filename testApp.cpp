@@ -17,18 +17,19 @@
 #define PI 3.141592
 #define LOOKUP_SIZE 100                                  //ルックアップテーブルのデフォルトサイズ
 #define LABEL_KIND_NUM 6                                 //取得したいラベルの種類数
-#define AROUND_PIXEL_X 500                               //現在の座標の周りの探索する際のXの範囲
-#define AROUND_PIXEL_Y 60                                //                              Yの範囲
+#define AROUND_PIXEL_X 200                               //現在の座標の周りの探索する際のXの範囲
+#define AROUND_PIXEL_Y 50                                //                              Yの範囲
 #define ID_COUNT 4                                       //データとなる動画の数
 #define COLOR_DECIDE_LENGTH 9                            //色空間を定義するのに必要な要素数 ex){rs, re, gs, ge, bs, be}の配列
 #define MODE_KIND 3
 #define FEATURE_KIND 2
 
 /*******「誰の」「何の処理か」「特徴量」を設定********/
-#define ID 1                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
+#define ID 0                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
 #define MODE 1                                           //0:ラベリングモード 1:追跡モード 2:再生モード
-#define FEATURE 1                                        //0:股の角度、1:膝の角度
-#define HIST 1
+#define FEATURE 0                                        //0:股の角度、1:膝の角度
+#define HIST 0                                           //ヒストグラム出力
+#define COLOR 1                                          //色特徴空間生成
 
 using namespace std;
 using namespace cv;
@@ -37,39 +38,20 @@ using namespace cv;
 const string video_urls[ID_COUNT] = { "Hoshino.avi", "Shuno.avi", "Haneda.avi", "Kitazawa.avi" };
 const int use_start_frames[ID_COUNT] = { 400, 210, 532, 1832 };
 const int use_frame_nums[ID_COUNT] = { 32, 38, 36, 38 };
-//ラベルごとの色空間を定義
-//{(r-b空間中心点x), (r-b空間中心点y), (r-b空間X軸長), (r-b空間Y軸長), (r-b空間回転角θ),
-//(g-b空間中心点x), (g-b空間中心点y), (g-b空間X軸長), (g-b空間Y軸長), (g-b空間回転角),
-//(r-g空間中心点x), (r-g空間中心点y), (r-g空間X軸長), (r-g空間Y軸長), (r-g空間回転角)}
-const unsigned int ankle_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 0, 50, 50, 255, 150, 255 },
-{ 0, 50, 50, 255, 150, 255 },
-{ 0, 50, 50, 255, 150, 255 },
-{ 0, 50, 50, 255, 150, 255 } };      //青
-const unsigned int left_knee_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 0, 80, 150, 255, 0, 80 },
-{ 140, 75, 60, 20, 10 },
-{ 20, 80, 75, 230, 80, 170 },
-{ 20, 80, 75, 230, 80, 170 } };      //緑
-const unsigned int right_knee_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 180, 255, 170, 255, 0, 150 },
-{ 130, 200, 80, 225, 10, 70 },
-{ 130, 200, 80, 225, 10, 70 },
-{ 130, 200, 80, 225, 10, 70 } };     //黄色
-const unsigned int left_heel_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 180, 255, 170, 255, 0, 150 },
-{ 80, 190, 95, 180, 25, 100 },
-{ 80, 190, 95, 180, 25, 100 },
-{ 80, 190, 95, 180, 25, 100 } };      //黄色
-const unsigned int right_heel_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 100, 255, 0, 100, 100, 255 },
-{ 60, 120, 45, 90, 101, 160 },
-{ 60, 120, 45, 90, 101, 160 },
-{ 60, 120, 45, 90, 101, 160 } };     //紫
-const unsigned int head_color_spaces[ID_COUNT][COLOR_DECIDE_LENGTH] = { { 20, 80, 75, 230, 80, 170 },
-{ 0, 80, 150, 255, 0, 80 },
-{ 0, 80, 150, 255, 0, 80 },
-{ 20, 80, 75, 230, 80, 170 } };      //緑
 
 const int labels_each_ids[ID_COUNT][LABEL_KIND_NUM] = { { 15, 25, 31, 38, 41, 2 },
 { 21, 37, 38, 49, 47, 1 },
 { 25, 38, 39, 48, 44, 1 },
 { 30, 50, 48, 57, 59, 1 } };
+
+enum JOINT{
+	ANKLE = 1,
+	LEFT_KNEE = 2,
+	RIGHT_KNEE = 3,
+	LEFT_HEEL = 4,
+	RIGHT_HEEL = 5,
+	HEAD = 6,
+};
 
 /************グローバル変数群***********/
 string video_url;                                            //使用する動画のURL
@@ -105,15 +87,6 @@ void init_config(){
 	use_start_frame = use_start_frames[ID];
 	use_frame_num = use_frame_nums[ID];
 	use_end_frame = use_start_frame + use_frame_num;
-	//色空間初期化(このコードだめだねぇ)
-	for (int i = 0; i < COLOR_DECIDE_LENGTH; i++){
-		ankle_color_space.push_back(ankle_color_spaces[ID][i]);
-		left_knee_color_space.push_back(left_knee_color_spaces[ID][i]);
-		right_knee_color_space.push_back(right_knee_color_spaces[ID][i]);
-		left_heel_color_space.push_back(left_heel_color_spaces[ID][i]);
-		right_heel_color_space.push_back(right_heel_color_spaces[ID][i]);
-		head_color_space.push_back(head_color_spaces[ID][i]);
-	}
 	for (int i = 0; i < LABEL_KIND_NUM; i++){ label_num_by_id[i] = labels_each_ids[ID][i]; }
 }
 
@@ -160,23 +133,23 @@ public:
 **********************************************************************************/
 class Label{
 private:
-	char name;
-	vector<unsigned int> color_space;
+	int label_id;
+	string name;
 	vector<Point> cog;
 	vector<Point> prev_points;
 	vector<Point> current_points;
 	Point prev_back_up;
 public:
 	Label(){}
-	Label(char name, vector<Point> current_points, Point first_cog, vector<unsigned int> color_space)
-		: name(name), current_points(current_points), color_space(color_space)
+	Label(int label_id, string name, vector<Point> current_points, Point first_cog)
+		: label_id(label_id), name(name), current_points(current_points)
 	{
 		vector<Point> pp;
 		prev_points = pp;
 		cog.push_back(first_cog);
 	}
-	char get_name() { return name; }
-	vector<unsigned int> get_color_space(){ return color_space; }
+	int get_id(){ return label_id; }
+	string get_name() { return name; }
 	vector<Point> get_current_points(){ return current_points; }
 	vector<Point> get_prev_points(){ return prev_points; }
 	vector<Point> get_cog(){ return cog; }
@@ -245,12 +218,30 @@ vector<int> label_list;                          //全ラベルの一覧
 unordered_map<int, Vec3b> label_color_list;      //ラベルごとの色
 
 //座標の正当性チェック
-bool point_validation(int x, int y, int width, int height){
-	if (x < 0 || x > width || y < 0 || y > height) {
-		return true;
+bool point_validation(int x, int y, int width, int height, int z = NULL, int depth = NULL, int dimension = 2){
+	if (dimension == 2){
+		if (x < 0 || x > width || y < 0 || y > height) {
+			return true;
+		}
+		else{
+			return false;
+		}
+	}
+	else if (dimension == 3){
+		if (x < 0 || x > width || y < 0 || y > height || z < 0 || z > depth) {
+			return true;
+		}
+		else{
+			return false;
+		}
 	}
 	else{
-		return false;
+		try{
+			throw("正しい次元を指定してください");
+		}
+		catch (char *e){
+			cout << e;
+		}
 	}
 }
 
@@ -552,6 +543,17 @@ void output_histgram_data(){
 	right_heel.close();
 }
 
+/*****************色特徴空間生成*****************/
+//unordered_map<Vec3b, int, HashVI> color_feature_space;  //色特徴空間本体
+int color_feature_space[255][255][255];  //色特徴空間本体(ハッシュ的な役割)
+
+void create_feature_space(int part, Vec3b val){
+	int r = val[2];
+	int g = val[1];
+	int b = val[0];
+	color_feature_space[r][g][b] = part;
+}
+
 /***********************************************/
 
 //Labelクラスを初期化(※リファクタリングしたいなー)
@@ -581,62 +583,67 @@ void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 				if (HIST == 1){
 					histgram(0, val);
 				}
-				else{
-					ankle_point.push_back(Point{ x, y });
-					change_min_and_max_value(x, y, &max_points[0], &max_points[1],
-						&min_points[0], &min_points[1]);
+				if (COLOR == 1){
+					create_feature_space(ANKLE, val);
 				}
-				
+				ankle_point.push_back(Point{ x, y });
+				change_min_and_max_value(x, y, &max_points[0], &max_points[1],
+						&min_points[0], &min_points[1]);
 			}
 			else if (labels[v] == label_num_by_id[1]){
 				if (HIST == 1){
 					histgram(1, val);
 				}
-				else{
-					left_knee_point.push_back(Point{ x, y });
-					change_min_and_max_value(x, y, &max_points[2], &max_points[3],
-						&min_points[2], &min_points[3]);
+				if (COLOR == 1){
+					create_feature_space(LEFT_KNEE, val);
 				}
+				left_knee_point.push_back(Point{ x, y });
+				change_min_and_max_value(x, y, &max_points[2], &max_points[3],
+						&min_points[2], &min_points[3]);
 			}
 			else if (labels[v] == label_num_by_id[2]){
 				if (HIST == 1){
 					histgram(2, val);
 				}
-				else{
-					right_knee_point.push_back(Point{ x, y });
-					change_min_and_max_value(x, y, &max_points[4], &max_points[5],
-						&min_points[4], &min_points[5]);
+				if (COLOR == 1){
+					create_feature_space(RIGHT_KNEE, val);
 				}
+				right_knee_point.push_back(Point{ x, y });
+				change_min_and_max_value(x, y, &max_points[4], &max_points[5],
+						&min_points[4], &min_points[5]);
 			}
 			else if (labels[v] == label_num_by_id[3]){
 				if (HIST == 1){
 					histgram(3, val);
 				}
-				else{
-					left_heel_point.push_back(Point{ x, y });
-					change_min_and_max_value(x, y, &max_points[6], &max_points[7],
-						&min_points[6], &min_points[7]);
+				if (COLOR == 1){
+					create_feature_space(LEFT_HEEL, val);
 				}
+				left_heel_point.push_back(Point{ x, y });
+				change_min_and_max_value(x, y, &max_points[6], &max_points[7],
+						&min_points[6], &min_points[7]);
 			}
 			else if (labels[v] == label_num_by_id[4]){
 				if (HIST == 1){
 					histgram(4, val);
 				}
-				else{
-					right_heel_point.push_back(Point{ x, y });
-				    change_min_and_max_value(x, y, &max_points[8], &max_points[9],
-						&min_points[8], &min_points[9]);
+				if (COLOR == 1){
+					create_feature_space(RIGHT_HEEL, val);
 				}
+				right_heel_point.push_back(Point{ x, y });
+				change_min_and_max_value(x, y, &max_points[8], &max_points[9],
+						&min_points[8], &min_points[9]);
 			}
 			else if (labels[v] == label_num_by_id[5]){
 				if (HIST == 1){
 					//histgram(5, val);
 				}
-				else{
-					head_point.push_back(Point{ x, y });
-					change_min_and_max_value(x, y, &max_points[10], &max_points[11],
-						&min_points[10], &min_points[11]);
+				if (COLOR == 1){
+					//create_feature_space(HEAD, val);
 				}
+				head_point.push_back(Point{ x, y });
+				change_min_and_max_value(x, y, &max_points[10], &max_points[11],
+						&min_points[10], &min_points[11]);
 			}
 		}
 	}
@@ -649,12 +656,12 @@ void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 		cogs[i] = cog_point;
 	}
 
-	Label ankle('腰', ankle_point, cogs[0], ankle_color_space);
-	Label left_knee('左膝', left_knee_point, cogs[1], left_knee_color_space);
-	Label right_knee('右膝', right_knee_point, cogs[2], right_knee_color_space);
-	Label left_heel('左首', left_heel_point, cogs[3], left_heel_color_space);
-	Label right_heel('右首', right_heel_point, cogs[4], right_heel_color_space);
-	Label head('頭', head_point, cogs[5], head_color_space);
+	Label ankle(ANKLE, "腰", ankle_point, cogs[0]);
+	Label left_knee(LEFT_KNEE, "左膝", left_knee_point, cogs[1]);
+	Label right_knee(RIGHT_KNEE, "右膝", right_knee_point, cogs[2]);
+	Label left_heel(LEFT_HEEL ,"左首", left_heel_point, cogs[3]);
+	Label right_heel(RIGHT_HEEL, "右首", right_heel_point, cogs[4]);
+	Label head(HEAD, "頭", head_point, cogs[5]);
 
 	*ankle_ptr = ankle;
 	*left_knee_ptr = left_knee;
@@ -710,6 +717,84 @@ void search_same_points(Mat& frame, Label *ankle, Label *left_knee,
 	}
 }
 
+int bin[LABEL_KIND_NUM] = {};   //プロットした点の周辺の点のラベルを格納(ヒストグラム)
+void search_color_from_feature_space(Point p, Vec3b color, Label* label){
+	const int mask = 9; //処理マスク初期値
+	int joint = label->get_id();
+	int r = color[2];
+	int g = color[1];
+	int b = color[0];
+
+	//色特徴空間内を探索(maxk*maxk*maskの範囲)
+//	int bin[LABEL_KIND_NUM] = {};
+	double min_dist = 1000000000.0;
+	int min_label = 0;
+	for (int tr = r - (int)(mask / 2); tr <= r + (int)(mask / 2); tr++){
+		for (int tg = g - (int)(mask / 2); tg <= g + (int)(mask / 2); tg++){
+			for (int tb = b - (int)(mask / 2); tb <= b + (int)(mask / 2); tb++){
+				if (point_validation(tr, tg, 255, 255, tb, 255, 3)){
+					continue;
+				}
+				else{
+					if (color_feature_space[tr][tg][tb] != 0){
+						double dist = sqrt((tr - r)*(tr - r) + (tg - g)*(tg - g) + (tb - b)*(tb - b));
+						if (dist < min_dist){
+							min_dist = dist;
+							min_label = color_feature_space[tr][tg][tb];
+						}
+//						bin[color_feature_space[tr][tg][tb]] += 1;
+					}
+				}
+			}
+		}
+	}
+
+	//最頻値計算
+/*	int max_label = 0;
+	for (int i = 1; i <= LABEL_KIND_NUM; i++){
+		if (bin[i] > max_label){
+			max_label = bin[i];
+		}	
+	}
+	*/
+
+	//与えられたラベルと最頻値がマッチするかどうか
+	//マッチすればそのラベルの点と判断し、しなければスルー
+/*	if (joint == max_label){
+		label->set_current_points(p);
+	}*/
+	if (joint == min_label){
+		label->set_current_points(p);
+	}
+}
+
+//明らかに外れている点を除去
+void remove_marker_noise(Mat& frame, Label* label){
+	const int around_pixel_x = 5;
+	const int around_pixel_y = 5;
+	const int thresh = 20;
+	vector<Point>& cps = label->get_current_points();
+	for (auto itr = cps.begin(); itr != cps.end(); ++itr){
+		Point cp = *itr;
+		int blank_pixel_count = 0;
+		for (int y = cp.y - around_pixel_y; y <= cp.y + around_pixel_y; y++){
+			for (int x = cp.x - around_pixel_x; x <= cp.x + around_pixel_x; x++){
+				vector<int> p{ x, y };
+				if (cp.x == x && cp.y == y){ continue; }//同じ点ならスキップ
+				Vec3b frame_p = frame.at<Vec3b>(y, x);
+				if (frame_p[2] <= 10 && frame_p[1] <= 10 && frame_p[0] <= 10){
+					blank_pixel_count++;
+				}
+			}
+		}
+		//すっからかんの点がthreshより多かったらその点を削除
+		if (blank_pixel_count >= thresh){
+			itr = cps.erase(itr);
+		}
+	}
+}
+
+
 //周りの点を探索する
 void search_around_points_each_labels(Mat& frame, Label *label){
 	Point cp;
@@ -724,25 +809,21 @@ void search_around_points_each_labels(Mat& frame, Label *label){
 	else{
 		cp = current_points[0];
 	}
-	Vec3b current_color;
-	vector<unsigned int> cs = label->get_color_space();
-	unsigned int rs = cs[0];
-	unsigned int re = cs[1];
-	unsigned int gs = cs[2];
-	unsigned int ge = cs[3];
-	unsigned int bs = cs[4];
-	unsigned int be = cs[5];
+	Vec3b current;
+	rectangle(frame, Point{ cp.x - (AROUND_PIXEL_X / 2), cp.y - (AROUND_PIXEL_Y / 2) },
+		Point{ cp.x + (AROUND_PIXEL_X / 2), cp.y + (AROUND_PIXEL_Y / 2) }, Scalar(0, 0, 255));
 	for (int y = cp.y - (AROUND_PIXEL_Y / 2); y < cp.y + (AROUND_PIXEL_Y / 2); y++){
 		Vec3b* ptr = frame.ptr<Vec3b>(y);
 		for (int x = cp.x - (AROUND_PIXEL_X / 2); x < cp.x + (AROUND_PIXEL_X / 2); x++){
-			current_color = ptr[x];
-			if (rs < current_color[2] && re > current_color[2] &&
-				gs < current_color[1] && ge > current_color[1] &&
-				bs < current_color[0] && be > current_color[0]){
-				label->set_current_points(Point{ x, y });
+			current = ptr[x];
+			Point p{ x, y };
+			//マーカーでない点はスキップする
+			if (current[2] >= 10 && current[1] >= 10 && current[0] >= 10){
+				search_color_from_feature_space(p, current, label);
 			}
 		}
 	}
+//	remove_marker_noise(frame, label);
 }
 
 //ラベルごとに周りの点を探索する
@@ -960,7 +1041,13 @@ int _tmain(int argc, _TCHAR* argv[])
 		}
         */
 		if (MODE == 1){
-			
+	/*		vector<Point> pp = right_knee.get_current_points();
+			for (auto itr = pp.begin(); itr != pp.end(); ++itr){
+				Point p = *itr;
+				rectangle(dst_img, p, p, Scalar(0, 0, 255));
+			}*/
+	//		rectangle(dst_img, Point{ left_knee.get_cog()[count - use_start_frame].x - (AROUND_PIXEL_X / 2), left_knee.get_cog()[count - use_start_frame].y - (AROUND_PIXEL_Y / 2) },
+	//			Point{ left_knee.get_cog()[count - use_start_frame].x + (AROUND_PIXEL_X / 2), left_knee.get_cog()[count - use_start_frame].y + (AROUND_PIXEL_Y / 2) }, Scalar(0, 0, 255));
 			circle(dst_img, ankle.get_cog()[count - use_start_frame], 5, Scalar(0, 0, 255), -1);
 			circle(dst_img, left_knee.get_cog()[count - use_start_frame], 5, Scalar(0, 255, 0), -1);
 			circle(dst_img, right_knee.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 0), -1);
