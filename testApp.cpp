@@ -28,8 +28,8 @@
 #define ID 0                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
 #define MODE 1                                           //0:ラベリングモード 1:追跡モード 2:再生モード
 #define FEATURE 0                                        //0:股の角度、1:膝の角度
-#define HIST 0                                           //ヒストグラム出力
-#define COLOR 1                                          //色特徴空間生成
+#define HIST 1                                           //ヒストグラム出力
+#define COLOR 0                                          //色特徴空間生成
 
 using namespace std;
 using namespace cv;
@@ -41,7 +41,7 @@ const int use_frame_nums[ID_COUNT] = { 32, 38, 36, 38 };
 
 const int labels_each_ids[ID_COUNT][LABEL_KIND_NUM] = { { 15, 25, 31, 38, 41, 2 },
 { 21, 37, 38, 49, 47, 1 },
-{ 25, 38, 39, 48, 44, 1 },
+{ 25, 39, 38, 48, 44, 1 },
 { 30, 50, 48, 57, 59, 1 } };
 
 enum JOINT{
@@ -487,11 +487,11 @@ void change_min_and_max_value(int x, int y, int *max_x, int *max_y,
 }
 
 /***********ヒストグラム求める***************/
-int ankle_hist[255][255][255] = {};
-int left_knee_hist[255][255][255] = {};
-int right_knee_hist[255][255][255] = {};
-int left_heel_hist[255][255][255] = {};
-int right_heel_hist[255][255][255] = {};
+int ankle_hist[256][256][256] = {};
+int left_knee_hist[256][256][256] = {};
+int right_knee_hist[256][256][256] = {};
+int left_heel_hist[256][256][256] = {};
+int right_heel_hist[256][256][256] = {};
 
 void histgram(int part, Vec3b val){
 	int r = val[2];
@@ -525,12 +525,16 @@ void output_histgram_data(){
 	ofstream right_knee("right_knee_histgram.dat");
 	ofstream left_heel("left_heel_histgram.dat");
 	ofstream right_heel("right_heel_histgram.dat");
-	for (int i = 0; i < 255; i++){
-		for (int j = 0; j < 255; j++){
-			for (int k = 0; k < 255; k++){
+	for (int i = 0; i < 256; i++){
+		for (int j = 0; j < 256; j++){
+			for (int k = 0; k < 256; k++){
 				if (ankle_hist[i][j][k] != 0){ ankle << i << " " << j << " " << k << endl; }
-				if (left_knee_hist[i][j][k] != 0){ left_knee << i << " " << j << " " << k << endl; }
-				if (right_knee_hist[i][j][k] != 0){ right_knee << i << " " << j << " " << k << endl; }
+				if (left_knee_hist[i][j][k] != 0){
+					left_knee << i << " " << j << " " << k << endl; 
+				}
+				if (right_knee_hist[i][j][k] != 0){
+					right_knee << i << " " << j << " " << k << endl; 
+				}
 				if (left_heel_hist[i][j][k] != 0){ left_heel << i << " " << j << " " << k << endl; }
 				if (right_heel_hist[i][j][k] != 0){ right_heel << i << " " << j << " " << k << endl; }
 			}
@@ -545,7 +549,7 @@ void output_histgram_data(){
 
 /*****************色特徴空間生成*****************/
 //unordered_map<Vec3b, int, HashVI> color_feature_space;  //色特徴空間本体
-int color_feature_space[255][255][255];  //色特徴空間本体(ハッシュ的な役割)
+int color_feature_space[256][256][256];  //色特徴空間本体(ハッシュ的な役割)
 
 void create_feature_space(int part, Vec3b val){
 	int r = val[2];
@@ -579,6 +583,9 @@ void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 		for (int x = 0; x < width; x++){
 			vector<int> v{ x, y };
 			Vec3b val = ptr[x];
+			int r = val[2];
+			int g = val[1];
+			int b = val[0];
 			if (labels[v] == label_num_by_id[0]){
 				if (HIST == 1){
 					histgram(0, val);
@@ -702,9 +709,10 @@ void find_same_point(Label *label, Point p){
 void search_same_points(Mat& frame, Label *ankle, Label *left_knee,
 	Label *right_knee, Label *left_heel, Label *right_heel, Label *head){
 	for (int y = 0; y < height; y++){
-		unsigned char* ptr = frame.ptr<unsigned char>(y);
+		Vec3b* ptr = frame.ptr<Vec3b>(y);
 		for (int x = 0; x < width; x++){
-			if (ptr[x] != 0){
+			Vec3b color = ptr[x];
+			if (color[2] > 30 && color[1] > 30 && color[0] > 30){
 				Point p{ x, y };
 				find_same_point(ankle, p);
 				find_same_point(left_knee, p);
@@ -794,7 +802,6 @@ void remove_marker_noise(Mat& frame, Label* label){
 	}
 }
 
-
 //周りの点を探索する
 void search_around_points_each_labels(Mat& frame, Label *label){
 	Point cp;
@@ -810,8 +817,6 @@ void search_around_points_each_labels(Mat& frame, Label *label){
 		cp = current_points[0];
 	}
 	Vec3b current;
-	rectangle(frame, Point{ cp.x - (AROUND_PIXEL_X / 2), cp.y - (AROUND_PIXEL_Y / 2) },
-		Point{ cp.x + (AROUND_PIXEL_X / 2), cp.y + (AROUND_PIXEL_Y / 2) }, Scalar(0, 0, 255));
 	for (int y = cp.y - (AROUND_PIXEL_Y / 2); y < cp.y + (AROUND_PIXEL_Y / 2); y++){
 		Vec3b* ptr = frame.ptr<Vec3b>(y);
 		for (int x = cp.x - (AROUND_PIXEL_X / 2); x < cp.x + (AROUND_PIXEL_X / 2); x++){
@@ -823,7 +828,6 @@ void search_around_points_each_labels(Mat& frame, Label *label){
 			}
 		}
 	}
-//	remove_marker_noise(frame, label);
 }
 
 //ラベルごとに周りの点を探索する
@@ -931,7 +935,6 @@ int _tmain(int argc, _TCHAR* argv[])
 	Label head;
 
 	ofstream ofs("output_angles.txt");
-
 	namedWindow("test");
 	
 	Mat dst_img;
@@ -1066,8 +1069,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		imshow("test", frame);
 		waitKey(30);
 	}
-	
-	if (MODE == 1){
+	if (MODE == 1 && HIST == 0){
 		for (int i = 0; i < use_frame_num; i++){
 			cout << i << "フレーム目:" << angles[i] << endl;
 			ofs << i << ", " << angles[i] << endl;
@@ -1088,7 +1090,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		return 1;
 	}
 	/**********フーリエ変換とプロット***********/
-	if (MODE == 1){
+	if (MODE == 1 && HIST == 0){
 		FILE *fp = _popen("wgnuplot_pipes.exe", "w");
 		if (fp == NULL){
 			return -1;
