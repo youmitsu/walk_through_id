@@ -558,13 +558,30 @@ void create_feature_space(int part, Vec3b val){
 	color_feature_space[r][g][b] = part;
 }
 
-/***********************************************/
+/*****************ラベル特徴空間生成(クラスタリングに使用)*****************/
+
+bool *label_feature_space;
+/*最初のラベル割り当てに使う
+  5次元空間におけるKMeansクラスタリングを実行する*/
+void create_label_space(Mat& frame){
+	const int height = 100;
+	label_feature_space = new bool[(height+1)*128*128*128]; //[x][y][r][g][b]
+	for (int y = 0; y < height; y++){
+		Vec3b* ptr = frame.ptr<Vec3b>(y);
+		for (int x = 0; x < width; x++){
+			Vec3b color = ptr[x];
+			label_feature_space[x*width+y]++;
+		}
+	}
+}
 
 //Labelクラスを初期化(※リファクタリングしたいなー)
 void init_label_class(Mat& frame, Label *ankle_ptr, Label *left_knee_ptr,
 	Label *right_knee_ptr, Label *left_heel_ptr, Label *right_heel_ptr, Label *head_ptr){
 	int height = frame.rows;
 	int width = frame.cols;
+
+	create_label_space(frame);
 	
 	//ラベルごとの最大値の{ankle[x],ankle[y],left_knee[x],left_knee[y],x,y,...,x,y}
 	int max_points[12] = {}; 
@@ -974,7 +991,7 @@ int _tmain(int argc, _TCHAR* argv[])
 				}
 			}
 			if (MODE == 1){
-				import_labels();
+			//	import_labels();
 				init_label_class(frame, &ankle, &left_knee, &right_knee,
 					&left_heel, &right_heel, &head);
 
