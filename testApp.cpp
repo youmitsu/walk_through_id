@@ -39,11 +39,6 @@ const string video_urls[ID_COUNT] = { "Hoshino.avi", "Shuno.avi", "Haneda.avi", 
 const int use_start_frames[ID_COUNT] = { 400, 210, 532, 1832 };
 const int use_frame_nums[ID_COUNT] = { 32, 38, 36, 38 };
 
-const int labels_each_ids[ID_COUNT][LABEL_KIND_NUM] = { { 15, 25, 31, 38, 41, 2 },
-{ 21, 37, 38, 49, 47, 1 },
-{ 25, 39, 38, 48, 44, 1 },
-{ 30, 50, 48, 57, 59, 1 } };
-
 enum JOINT{
 	ANKLE = 1,
 	LEFT_KNEE = 2,
@@ -58,12 +53,6 @@ string video_url;                                            //使用する動画のURL
 int use_start_frame;                                         //動画から使う最初のフレーム
 int use_frame_num;                                           //使用するフレーム数
 int use_end_frame;                                           //動画から使う最後のフレーム
-vector<unsigned int> ankle_color_space;         //腰に該当する色空間
-vector<unsigned int> left_knee_color_space;     //左膝
-vector<unsigned int> right_knee_color_space;    //右膝
-vector<unsigned int> left_heel_color_space;     //左足首
-vector<unsigned int> right_heel_color_space;    //右足首
-vector<unsigned int> head_color_space;          //頭
 int label_num_by_id[LABEL_KIND_NUM];                         //取得したい関節に該当するラベル番号を格納
 unordered_map<int, int> lookup_table;                        //ルックアップテーブル
 int latest_label_num = 0;                                    //ラベリングで使用する
@@ -87,8 +76,14 @@ void init_config(){
 	use_start_frame = use_start_frames[ID];
 	use_frame_num = use_frame_nums[ID];
 	use_end_frame = use_start_frame + use_frame_num;
-	for (int i = 0; i < LABEL_KIND_NUM; i++){ label_num_by_id[i] = labels_each_ids[ID][i]; }
 }
+
+struct YRGB{
+	int y;
+	int r;
+	int g;
+	int b;
+};
 
 //vectorをキーとするハッシュマップを使用するためのクラス
 class HashVI{
@@ -216,6 +211,7 @@ void Label::clear_prev_points(){
 unordered_map<vector<int>, int, HashVI> labels;  //key：座標、value：ラベル番号
 vector<int> label_list;                          //全ラベルの一覧
 unordered_map<int, Vec3b> label_color_list;      //ラベルごとの色
+unordered_map<YRGB, int, HashVI> labe;
 
 //座標の正当性チェック
 bool point_validation(int x, int y, int width, int height, int z = NULL, int depth = NULL, int dimension = 2){
