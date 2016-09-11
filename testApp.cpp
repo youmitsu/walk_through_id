@@ -25,7 +25,7 @@
 #define FEATURE_KIND 2
 
 /*******「誰の」「何の処理か」「特徴量」を設定********/
-#define ID 0                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
+#define ID 2                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
 #define MODE 1                                           //0:ラベリングモード 1:追跡モード 2:再生モード
 #define FEATURE 0                                        //0:股の角度、1:膝の角度
 #define HIST 1                                           //ヒストグラム出力
@@ -55,6 +55,8 @@ enum JOINT{
 	LEFT_HEEL = 12,
 	RIGHT_HEEL = 13
 };
+
+string joint_names[LABEL_KIND_NUM] = {"頭", "左", "a", "b", "c", "d", "e", "f", "g", "h", "k", "l"};
 
 /************グローバル変数群***********/
 string video_url;                                            //使用する動画のURL
@@ -89,7 +91,7 @@ void init_config(){
 }
 
 struct YRGB{
-	int y;
+    double y;
 	int r;
 	int g;
 	int b;
@@ -298,13 +300,13 @@ bool label_exist (vector<int> yrgb){
 
 //教師付き分類
 int search_label_with_supervised_classification(vector<int> yrgb){
-	const int mask = 9;
+	const int mask = 11;
 	int y, r, g, b, ty, tr, tg, tb;
 	y = yrgb[0];
 	r = yrgb[1];
 	g = yrgb[2];
 	b = yrgb[3];
-	
+	vector<int> yrgb2;
 	double dist;
 	double min_dist = 1000000000.0;
 	int min_label = -1;
@@ -313,16 +315,22 @@ int search_label_with_supervised_classification(vector<int> yrgb){
 		for (tr = r - (int)(mask / 2); tr <= r + (int)(mask / 2); tr++){
 			for (tg = g - (int)(mask / 2); tg <= g + (int)(mask / 2); tg++){
 				for (tb = b - (int)(mask / 2); tb <= b + (int)(mask / 2); tb++){
-					if (!label_exist(yrgb)){
-						continue;
-					}
-					else{
+					yrgb2 = {ty, tr, tg, tb};
+					if (label_exist(yrgb2)){
 						double dist = sqrt((ty - y)*(ty - y) + (tr - r)*(tr - r) + (tg - g)*(tg - g) + (tb - b)*(tb - b));
 						if (dist < min_dist){
 							min_dist = dist;
-							min_label = labels[yrgb];
+							min_label = labels[yrgb2];
 						}
 					}
+					/*
+					if (temp_label != 0){
+						double dist = sqrt((ty - y)*(ty - y) + (tr - r)*(tr - r) + (tg - g)*(tg - g) + (tb - b)*(tb - b));
+						if (dist < min_dist){
+							min_dist = dist;
+							min_label = temp_label;
+						}
+					}*/
 				}
 			}
 		}
@@ -332,34 +340,33 @@ int search_label_with_supervised_classification(vector<int> yrgb){
 
 //y値をresized_heightによって正規化する
 int height_normalize(int y){
-	return (y - height_min) / resized_mean;
+	return (int)(((double)y - (double)height_min) / (double)resized_mean * 1000);
 }
 
 //画像からラベルを探索する
 void search_points_from_image(Mat& frame, Label* parts[]){
-	int r, g, b, y, label;
+	int r, g, b, y, label, normal_y;
 	const int rgb_thresh = 10;
 	Point p;
 	Vec3b val;
 	vector<int> yrgb;
-	for (int y = 0; y < height; y++){
+	for (int y = height_min; y < height_max + 1; y++){
 		Vec3b* ptr = frame.ptr<Vec3b>(y);
-		for (int x = 0; x < width; x++){
-			if (y < height_min || y > height_max || width_min < x || width_max > x){
-				continue;
-			}
+		for (int x = width_min; x < width_max + 1; x++){
 			p = { x, y };
 			val = ptr[x];
 
-			y = height_normalize(y);
+			normal_y = height_normalize(y);
 			r = val[2];
 			g = val[1];
 			b = val[0];
-			yrgb = { y, r, g, b };
+			yrgb = { normal_y, r, g, b };
 
 			if (r >= rgb_thresh && g >= rgb_thresh && b >= rgb_thresh){
 				label = search_label_with_supervised_classification(yrgb);
-				parts[label]->set_current_points(p);
+				if (label != -1){
+					parts[label-1]->set_current_points(p);
+				}
 			}
 		}
 	}
@@ -369,7 +376,6 @@ void search_points_from_image(Mat& frame, Label* parts[]){
 void init_label_class(Mat& frame, Label* parts[]){
 	int height = frame.rows;
 	int width = frame.cols;
-	int i;
 	//ラベルごとの最大値の{ankle[x],ankle[y],left_knee[x],left_knee[y],x,y,...,x,y}
 	int max_points[LABEL_KIND_NUM*2] = {}; 
 	//ラベルごとの最小値の{ankle[x],ankle[y],left_knee[x],left_knee[y],x,y,...,x,y}
@@ -378,43 +384,44 @@ void init_label_class(Mat& frame, Label* parts[]){
 
 	//ラベルごとの座標を保持するvectorを定義
 	vector<Point> parts_points[LABEL_KIND_NUM];
-	for (i = 0; i < LABEL_KIND_NUM; i++){
+	for (int i = 0; i < LABEL_KIND_NUM; i++){
 		vector<Point> v;
 		parts_points[i] = v;
 	}
 
 	//分類
-	int r, g, b, y, label;
+	int normal_y, label;
+	uchar r, g, b;
 	Point p;
 	Vec3b val;
 	vector<int> yrgb;
-	for (int y = 0; y < height; y++){
+	
+	for (int y = height_min; y < height_max+1; y++){
 		Vec3b* ptr = frame.ptr<Vec3b>(y);
-		for (int x = 0; x < width; x++){
-			if (y < height_min || y > height_max || width_min < x || width_max > x){
-				continue;
-			}
+		for (int x = width_min; x < width_max+1; x++){
 			p = { x, y };
 			val = ptr[x];
 
-			y = height_normalize(y);
+			normal_y = height_normalize(y);
 			r = val[2];
 			g = val[1];
 			b = val[0];
-			yrgb = { y, r, g, b };
-
+			yrgb = { normal_y, r, g, b };
+		
 			if (r >= rgb_thresh && g >= rgb_thresh && b >= rgb_thresh){
 				label = search_label_with_supervised_classification(yrgb);
-				parts_points[label].push_back(Point{ x, y });
-				change_min_and_max_value(x, y, &max_points[label * 2], &max_points[label * 2 + 1], &min_points[label * 2], &min_points[label * 2 + 1]);
+				if (label != -1){
+					parts_points[label-1].push_back(Point{ x, y });
+					change_min_and_max_value(x, y, &max_points[(label-1) * 2], &max_points[(label-1) * 2 + 1], &min_points[(label-1) * 2], &min_points[(label-1) * 2 + 1]);
+				}
 			}
 		}
 	}
-
+	
     //それぞれのラベルにおける重心を求める
 	Point cogs[LABEL_KIND_NUM];
 	int cog_x, cog_y;
-	for (i = 0; i < LABEL_KIND_NUM; i++){
+	for (int i = 0; i < LABEL_KIND_NUM; i++){
 		cog_x = (max_points[i*2] + min_points[i*2]) / 2;
 	    cog_y = (max_points[i*2+1] + min_points[i*2+1]) / 2;
 		Point cog_point{ cog_x, cog_y };
@@ -422,8 +429,8 @@ void init_label_class(Mat& frame, Label* parts[]){
 	}
 
 	//全ラベルのLabelクラスの初期化
-	for (i = 0; i < LABEL_KIND_NUM; i++){
-		*parts[i] = { ANKLE, "腰", parts_points[i], cogs[i] };
+	for (int i = 0; i < LABEL_KIND_NUM; i++){
+		*(parts[i]) = { i, joint_names[i], parts_points[i], cogs[i] };
 	}
 }
 
@@ -538,7 +545,8 @@ Mat resize_and_preproc(Mat& src, bool first=false){
 				Vec3b c = ptr[x];
 				if (c[2] > 10 && c[1] > 10 && c[0] > 10){
 					//change_label_feature_space(y, c[2], c[1], c[0], true);
-					p = { y - resized_mean, c[2], c[1], c[0] };
+					//cout << height_normalize(y) << endl;
+					p = { height_normalize(y), c[2], c[1], c[0] };
 					data.push_back(p);
 				}
 			}
@@ -604,21 +612,21 @@ void k_means_clustering(){
 				if (dis != 0){
 					if (dis < disMin){
 						disMin = dis;
-						minIndex = j;
+						minIndex = j+1;
 					}
 				}
 				else{
-					minIndex = j;
+					minIndex = j+1;
 					break;
 				}
 			}
 			yrgb = { dy, dr, dg, db };
 			labels[yrgb] = minIndex;
-			total[minIndex].y += dy;
-			total[minIndex].r += dr;
-			total[minIndex].g += dg;
-			total[minIndex].b += db;
-			clsCount[minIndex]++;
+			total[minIndex-1].y += dy;
+			total[minIndex-1].r += dr;
+			total[minIndex-1].g += dg;
+			total[minIndex-1].b += db;
+			clsCount[minIndex-1]++;
 		}
 		//新しいクラスタセンタを得る
 		//クラスタ内の平均値の算出
@@ -673,14 +681,10 @@ int _tmain(int argc, _TCHAR* argv[])
 	default:
 		break;
 	}
+	Label parts1, parts2, parts3, parts4, parts5, parts6, parts7, parts8, parts9, parts10, parts11, parts12;
+	Label* parts[LABEL_KIND_NUM] = { &parts1, &parts2, &parts3, &parts4, &parts5, &parts6,
+		&parts7, &parts8, &parts9, &parts10, &parts11, &parts12 };
 	//腰、左膝、右膝、左足首、右足首のLabelインスタンスを宣言
-	Label* parts[LABEL_KIND_NUM];
-	for (int i = 0; i < LABEL_KIND_NUM; i++){
-		Label* ls;
-		Label l;
-		ls = &l;
-		parts[i] = ls;
-	}
 
 	ofstream ofs("output_angles.txt");
 	namedWindow("test");
@@ -704,21 +708,6 @@ int _tmain(int argc, _TCHAR* argv[])
 			resized_img = resize_and_preproc(frame, true);
 			k_means_clustering();
 			init_label_class(frame, parts);
-	/*		switch (FEATURE){
-			case 0:
-				evaluate_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
-					right_knee.get_cog()[count - use_start_frame], left_knee.get_cog()[count - use_start_frame]);
-			case 1:
-				evaluate_front_knee_angle(right_knee.get_cog()[count - use_start_frame],
-					ankle.get_cog()[count - use_start_frame], right_heel.get_cog()[count - use_start_frame]);
-			default:
-				break;
-			}*/
-		/*	circle(dst_img, ankle.get_cog()[count - use_start_frame], 10, Scalar(255, 0, 0), -1);
-			circle(dst_img, left_knee.get_cog()[count - use_start_frame], 5, Scalar(255, 255, 255), -1);
-			circle(dst_img, left_knee.get_cog()[count - use_start_frame], 10, Scalar(0, 255, 0), -1);
-			circle(dst_img, left_heel.get_cog()[count - use_start_frame], 10, Scalar(0, 0, 255), -1);
-			circle(dst_img, right_heel.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 255), -1);*/
 		}
 		else if(count >= use_end_frame){
 			//対象となるフレームが終わったらループを抜ける
@@ -730,16 +719,6 @@ int _tmain(int argc, _TCHAR* argv[])
 				change_prev_and_current(parts);
 				search_points_from_image(frame, parts);
 				set_cog_each_label(parts);
-	/*			switch (FEATURE){
-				case 0:
-					evaluate_angle_ankle_and_knees(ankle.get_cog()[count - use_start_frame],
-						right_knee.get_cog()[count - use_start_frame], left_knee.get_cog()[count - use_start_frame]);
-				case 1:
-					evaluate_front_knee_angle(right_knee.get_cog()[count - use_start_frame],
-						ankle.get_cog()[count - use_start_frame], right_heel.get_cog()[count - use_start_frame]);
-				default:
-					break;
-				}*/
 			}
 			else{
 				break;
@@ -774,8 +753,13 @@ int _tmain(int argc, _TCHAR* argv[])
 			circle(dst_img, right_heel.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 255), -1);
 			circle(dst_img, head.get_cog()[count - use_start_frame], 5, Scalar(255, 255, 0), -1);*/
 			for (int i = 0; i < LABEL_KIND_NUM; i++){
-				cout << parts[i]->get_cog()[count - use_start_frame].x << ", " << parts[i]->get_cog()[count - use_start_frame].y << endl;
-				circle(dst_img, parts[i]->get_cog()[count - use_start_frame], 5, get_label_color(), -1);
+			//	cout << parts[i]->get_cog()[count - use_start_frame].x << ", " << parts[i]->get_cog()[count - use_start_frame].y << endl;
+			//	circle(dst_img, parts[i]->get_cog()[count - use_start_frame], 5, get_label_color(), -1);
+			}
+			vector<Point> test_points = parts[1]->get_current_points();
+			for (auto itr = test_points.begin(); itr != test_points.end(); ++itr){
+				Point ppp = *itr;
+				rectangle(dst_img, ppp, ppp, Scalar(0,0,255));
 			}
 		}
 		try{
