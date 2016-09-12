@@ -91,7 +91,7 @@ void init_config(){
 }
 
 struct YRGB{
-    double y;
+    int y;
 	int r;
 	int g;
 	int b;
@@ -296,11 +296,19 @@ bool label_exist (vector<int> yrgb){
 	else{
 		return false;
 	}
+	/*int label = labels[yrgb];
+	if (label == 0){
+		labels.erase(yrgb);
+		return false;
+	}
+	else{
+		return true;
+	}*/
 }
 
 //教師付き分類
 int search_label_with_supervised_classification(vector<int> yrgb){
-	const int mask = 11;
+	const int mask = 7;
 	int y, r, g, b, ty, tr, tg, tb;
 	y = yrgb[0];
 	r = yrgb[1];
@@ -311,7 +319,7 @@ int search_label_with_supervised_classification(vector<int> yrgb){
 	double min_dist = 1000000000.0;
 	int min_label = -1;
 
-	for (ty = y - (int)(mask / 2); ty <= y + (int)(mask / 2); ty++){
+	for (ty = y - (int)(mask / 4); ty <= y + (int)(mask / 4); ty++){
 		for (tr = r - (int)(mask / 2); tr <= r + (int)(mask / 2); tr++){
 			for (tg = g - (int)(mask / 2); tg <= g + (int)(mask / 2); tg++){
 				for (tb = b - (int)(mask / 2); tb <= b + (int)(mask / 2); tb++){
@@ -556,102 +564,127 @@ Mat resize_and_preproc(Mat& src, bool first=false){
 }
 
 void k_means_clustering(){
-	if (data.empty()){
-		cout << "dataがないよ" << endl;
-	}
 	const int k = 12;   //ラベルの数
-	YRGB kCenter[k];
-	YRGB total[k];
-	double clsCount[k];
-	double dis, disMin;
-	int randIndex;
-	bool changed = false;
-	int nData = data.size();
-	YRGB dp;
-	int dy, cy, minIndex;
-	int dr, dg, db, cr, cg, cb;
-	vector<int> yrgb; //clsLabelのためやむを得ず（ほんとはstructでやりたい）
-
-	for (int i = 0; i < k; i++){
-		randIndex = (int)rand() % (nData + 1);
-		kCenter[i].y = (int)data[randIndex].y;
-		kCenter[i].r = (int)data[randIndex].r;
-		kCenter[i].g = (int)data[randIndex].g;
-		kCenter[i].b = (int)data[randIndex].b;
-	}
-
-	//クラスタセンタが変化しなくなるまで繰り返す
-	int iterCount = 0;
-	do{
-		//クラスタ割り当て
-		changed = false;
-		for (int i = 0; i < k; i++){
-			clsCount[i] = 0;
-			total[i].y = 0;
-			total[i].r = 0;
-			total[i].g = 0;
-			total[i].b = 0;
+	const int nStart = 5;
+	double minWcv = 10000000000;     //最小のクラスタ内分散和
+	YRGB bestCenter[k];
+	YRGB p, q;
+	for (int h = 0; h < nStart; h++){
+		if (data.empty()){
+			cout << "dataがないよ" << endl;
 		}
-		labels.clear();
-		//各データ点とクラスタセンタ間との距離を計算
-		for (int i = 0; i < nData; i++){
-			yrgb.clear();
-			dp = data[i];
-			dy = dp.y;
-			dr = dp.r;
-			dg = dp.g;
-			db = dp.b;
-			disMin = 10000000000;
-			for (int j = 0; j < k; j++){
-				cy = kCenter[j].y;
-				cr = kCenter[j].r;
-				cg = kCenter[j].g;
-				cb = kCenter[j].b;
-				dis = sqrt((dy - cy)*(dy - cy) + (dr - cr)*(dr - cr) + (dg - cg)*(dg - cg) + (db - cb)*(db - cb));
-				//		cout << dis << endl;
-				if (dis != 0){
-					if (dis < disMin){
-						disMin = dis;
-						minIndex = j+1;
+		YRGB kCenter[k];
+		YRGB total[k];
+		double clsCount[k];
+		double dis, disMin;
+		int randIndex;
+		bool changed = false;
+		int nData = data.size();
+		YRGB dp;
+		int dy, cy, minIndex;
+		int dr, dg, db, cr, cg, cb;
+		vector<int> yrgb; //clsLabelのためやむを得ず（ほんとはstructでやりたい）
+
+		for (int i = 0; i < k; i++){
+			randIndex = (int)rand() % (nData + 1);
+			kCenter[i].y = (int)data[randIndex].y;
+			kCenter[i].r = (int)data[randIndex].r;
+			kCenter[i].g = (int)data[randIndex].g;
+			kCenter[i].b = (int)data[randIndex].b;
+		}
+
+		//クラスタセンタが変化しなくなるまで繰り返す
+		int iterCount = 0;
+		do{
+			//クラスタ割り当て
+			changed = false;
+			for (int i = 0; i < k; i++){
+				clsCount[i] = 0;
+				total[i].y = 0;
+				total[i].r = 0;
+				total[i].g = 0;
+				total[i].b = 0;
+			}
+			labels.clear();
+			//各データ点とクラスタセンタ間との距離を計算
+			for (int i = 0; i < nData; i++){
+				yrgb.clear();
+				dp = data[i];
+				dy = dp.y;
+				dr = dp.r;
+				dg = dp.g;
+				db = dp.b;
+				disMin = 10000000000;
+				for (int j = 0; j < k; j++){
+					cy = kCenter[j].y;
+					cr = kCenter[j].r;
+					cg = kCenter[j].g;
+					cb = kCenter[j].b;
+					dis = sqrt((dy - cy)*(dy - cy) + (dr - cr)*(dr - cr) + (dg - cg)*(dg - cg) + (db - cb)*(db - cb));
+					//		cout << dis << endl;
+					if (dis != 0){
+						if (dis < disMin){
+							disMin = dis;
+							minIndex = j + 1;
+						}
+					}
+					else{
+						minIndex = j + 1;
+						break;
 					}
 				}
-				else{
-					minIndex = j+1;
-					break;
+				yrgb = { dy, dr, dg, db };
+				labels[yrgb] = minIndex;
+				total[minIndex - 1].y += dy;
+				total[minIndex - 1].r += dr;
+				total[minIndex - 1].g += dg;
+				total[minIndex - 1].b += db;
+				clsCount[minIndex - 1]++;
+			}
+			//新しいクラスタセンタを得る
+			//クラスタ内の平均値の算出
+			int countMatch = 0;
+			YRGB mean[k];
+			for (int i = 0; i < k; i++){
+				mean[i].y = total[i].y / clsCount[i];
+				mean[i].r = total[i].r / clsCount[i];
+				mean[i].g = total[i].g / clsCount[i];
+				mean[i].b = total[i].b / clsCount[i];
+				if (mean[i].y == kCenter[i].y && mean[i].r == kCenter[i].r
+					&& mean[i].g == kCenter[i].g && mean[i].b == kCenter[i].b){
+					countMatch++;
 				}
+				kCenter[i] = mean[i];
 			}
-			yrgb = { dy, dr, dg, db };
-			labels[yrgb] = minIndex;
-			total[minIndex-1].y += dy;
-			total[minIndex-1].r += dr;
-			total[minIndex-1].g += dg;
-			total[minIndex-1].b += db;
-			clsCount[minIndex-1]++;
-		}
-		//新しいクラスタセンタを得る
-		//クラスタ内の平均値の算出
-		int countMatch = 0;
-		YRGB mean[k];
-		for (int i = 0; i < k; i++){
-			mean[i].y = total[i].y / clsCount[i];
-			mean[i].r = total[i].r / clsCount[i];
-			mean[i].g = total[i].g / clsCount[i];
-			mean[i].b = total[i].b / clsCount[i];
-			if (mean[i].y == kCenter[i].y && mean[i].r == kCenter[i].r
-				&& mean[i].g == kCenter[i].g && mean[i].b == kCenter[i].b){
-				countMatch++;
+			//新しいクラスタセンタが同じ点であるかどうかの判定
+			if (countMatch == k){
+				changed = false;
 			}
-			kCenter[i] = mean[i];
+			else{
+				changed = true;
+			}
+			iterCount++;
+		} while (changed);
+
+		//クラスタ内分散和の計算
+		int temp_label;
+		double var = 0.0;
+		vector<int> tp;
+		for (int g = 0; g < nData; g++){
+			p = data[g];
+			tp = { p.y, p.r, p.g, p.b };
+			temp_label = labels[tp];
+			q = kCenter[temp_label];
+			var += sqrt((p.y - q.y)*(p.y - q.y) + (p.r - q.r)*(p.r - q.r) + (p.g - q.g)*(p.g - q.g) + (p.b - q.b)*(p.b - q.b));
 		}
-		//新しいクラスタセンタが同じ点であるかどうかの判定
-		if (countMatch == k){
-			changed = false;
+		double wcv = var / nData;
+		if (wcv < minWcv){
+			minWcv = wcv;
+			for (int l = 0; l < k; l++){
+				bestCenter[l] = kCenter[l];
+			}
 		}
-		else{
-			changed = true;
-		}
-		iterCount++;
-	} while (changed);
+	}
 	//メモリの解放
 	data.clear();
 	data.shrink_to_fit();
@@ -756,7 +789,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			//	cout << parts[i]->get_cog()[count - use_start_frame].x << ", " << parts[i]->get_cog()[count - use_start_frame].y << endl;
 			//	circle(dst_img, parts[i]->get_cog()[count - use_start_frame], 5, get_label_color(), -1);
 			}
-			vector<Point> test_points = parts[1]->get_current_points();
+			vector<Point> test_points = parts[6]->get_current_points();
 			for (auto itr = test_points.begin(); itr != test_points.end(); ++itr){
 				Point ppp = *itr;
 				rectangle(dst_img, ppp, ppp, Scalar(0,0,255));
