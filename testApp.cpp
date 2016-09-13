@@ -220,7 +220,7 @@ void Label::clear_prev_points(){
 	prev_points.clear();
 }
 
-unordered_map<vector<int>, int, HashVI> labels;  //key：座標、value：ラベル番号
+unordered_map<vector<int>, int, HashVI> *labels;  //key：座標、value：ラベル番号
 vector<int> label_list;                          //全ラベルの一覧
 unordered_map<int, Vec3b> label_color_list;      //ラベルごとの色
 
@@ -289,8 +289,8 @@ void change_min_and_max_value(int x, int y, int *max_x, int *max_y,
 
 //指定したデータ点がマップ内に存在するか
 bool label_exist (vector<int> yrgb){
-	auto itr = labels.find(yrgb);
-	if (itr != labels.end()){
+	auto itr = labels->find(yrgb);
+	if (itr != labels->end()){
 		return true;
 	}
 	else{
@@ -308,7 +308,7 @@ bool label_exist (vector<int> yrgb){
 
 //教師付き分類
 int search_label_with_supervised_classification(vector<int> yrgb){
-	const int mask = 21;
+	const int mask = 11;
 	int y, r, g, b, ty, tr, tg, tb;
 	y = yrgb[0];
 	r = yrgb[1];
@@ -328,7 +328,7 @@ int search_label_with_supervised_classification(vector<int> yrgb){
 						double dist = sqrt((ty - y)*(ty - y) + (tr - r)*(tr - r) + (tg - g)*(tg - g) + (tb - b)*(tb - b));
 						if (dist < min_dist){
 							min_dist = dist;
-							min_label = labels[yrgb2];
+							min_label = (*labels)[yrgb2];
 						}
 					}
 					/*
@@ -565,14 +565,18 @@ Mat resize_and_preproc(Mat& src, bool first=false){
 
 void k_means_clustering(){
 	const int k = 12;   //ラベルの数
-	const int nStart = 5;
+	const int nStart = 9;
 	double minWcv = 10000000000;     //最小のクラスタ内分散和
 	YRGB bestCenter[k];
 	YRGB p, q;
+	unordered_map<vector<int>, int, HashVI> *all_labels;
+	all_labels = new unordered_map<vector<int>, int, HashVI>[nStart];
 	for (int h = 0; h < nStart; h++){
 		if (data.empty()){
 			cout << "dataがないよ" << endl;
 		}
+		unordered_map<vector<int>, int, HashVI> temp_labels;
+		all_labels[h] = temp_labels;
 		YRGB kCenter[k];
 		YRGB total[k];
 		double clsCount[k];
@@ -605,7 +609,7 @@ void k_means_clustering(){
 				total[i].g = 0;
 				total[i].b = 0;
 			}
-			labels.clear();
+			all_labels[h].clear();
 			//各データ点とクラスタセンタ間との距離を計算
 			for (int i = 0; i < nData; i++){
 				yrgb.clear();
@@ -634,7 +638,7 @@ void k_means_clustering(){
 					}
 				}
 				yrgb = { dy, dr, dg, db };
-				labels[yrgb] = minIndex;
+				all_labels[h].insert(make_pair(yrgb, minIndex));
 				total[minIndex - 1].y += dy;
 				total[minIndex - 1].r += dr;
 				total[minIndex - 1].g += dg;
@@ -668,14 +672,18 @@ void k_means_clustering(){
 
 		//クラスタ内分散和の計算
 		int temp_label;
-		double var = 0.0;
+		int var = 0;
 		vector<int> tp;
 		for (int g = 0; g < nData; g++){
 			p = data[g];
 			tp = { p.y, p.r, p.g, p.b };
-			temp_label = labels[tp];
+			temp_label = all_labels[h].at(tp);
 			q = kCenter[temp_label];
-			var += sqrt((p.y - q.y)*(p.y - q.y) + (p.r - q.r)*(p.r - q.r) + (p.g - q.g)*(p.g - q.g) + (p.b - q.b)*(p.b - q.b));
+			double v_y = (p.y - q.y)*(p.y - q.y);
+			double v_r = (p.r - q.r)*(p.r - q.r);
+			double v_g = (p.g - q.g)*(p.g - q.g);
+			double v_b = (p.b - q.b)*(p.b - q.b);
+			var += round(sqrt(v_y + v_r + v_g + v_b))/1000000000000;
 		}
 		double wcv = var / nData;
 		if (wcv < minWcv){
@@ -683,6 +691,10 @@ void k_means_clustering(){
 			for (int l = 0; l < k; l++){
 				bestCenter[l] = kCenter[l];
 			}
+			labels = &(all_labels[h]);
+		}
+		else{
+			all_labels[h].clear();
 		}
 	}
 	//メモリの解放
