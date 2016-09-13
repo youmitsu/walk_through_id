@@ -308,7 +308,7 @@ bool label_exist (vector<int> yrgb){
 
 //‹³t•t‚«•ª—Ş
 int search_label_with_supervised_classification(vector<int> yrgb){
-	const int mask = 7;
+	const int mask = 21;
 	int y, r, g, b, ty, tr, tg, tb;
 	y = yrgb[0];
 	r = yrgb[1];
@@ -348,7 +348,7 @@ int search_label_with_supervised_classification(vector<int> yrgb){
 
 //y’l‚ğresized_height‚É‚æ‚Á‚Ä³‹K‰»‚·‚é
 int height_normalize(int y){
-	return (int)(((double)y - (double)height_min) / (double)resized_mean * 1000);
+	return (int)(((double)y - (double)height_min) / (double)resized_mean * 2000);
 }
 
 //‰æ‘œ‚©‚çƒ‰ƒxƒ‹‚ğ’Tõ‚·‚é
@@ -789,10 +789,24 @@ int _tmain(int argc, _TCHAR* argv[])
 			//	cout << parts[i]->get_cog()[count - use_start_frame].x << ", " << parts[i]->get_cog()[count - use_start_frame].y << endl;
 			//	circle(dst_img, parts[i]->get_cog()[count - use_start_frame], 5, get_label_color(), -1);
 			}
-			vector<Point> test_points = parts[6]->get_current_points();
+
+			Scalar test_colors[LABEL_KIND_NUM] = { { 0, 0, 255 }, { 0, 255, 0 }, { 255, 0, 0}, { 0, 255, 255 },
+			{ 255, 255, 0 }, { 255, 0, 255 }, { 0, 0, 125 }, { 0, 125, 0 } ,
+			{ 125, 0, 0 }, { 0, 125, 125 }, { 125, 0, 125 }, { 125, 125, 0 } };
+
+			vector<vector<Point>> test_points;
+			for (int m = 0; m < LABEL_KIND_NUM; m++){
+				vector<Point> test_point = parts[m]->get_current_points();
+				test_points.push_back(test_point);
+			}
+			int n = 0;
 			for (auto itr = test_points.begin(); itr != test_points.end(); ++itr){
-				Point ppp = *itr;
-				rectangle(dst_img, ppp, ppp, Scalar(0,0,255));
+				vector<Point> test_point = *itr;
+				for (auto itr2 = test_point.begin(); itr2 != test_point.end(); ++itr2){
+					Point p = *itr2;
+					rectangle(dst_img, p, p, test_colors[n]);
+				}
+				n++;
 			}
 		}
 		try{
