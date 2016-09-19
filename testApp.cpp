@@ -563,6 +563,19 @@ Mat resize_and_preproc(Mat& src, bool first=false){
 	return resized_img;
 }
 
+//重複している点がないかをチェック
+bool check_distinct_points(YRGB *kCenter, YRGB data, int count){
+	for (int i = 0; i < count; i++){
+		YRGB center = kCenter[i];
+		if (center.y == data.y && center.r == data.r && center.g == data.g && center.b == data.b){
+			return false;
+		}
+		else{
+			return true;
+		}
+	}
+}
+
 void k_means_clustering(){
 	const int k = 12;   //ラベルの数
 	const int nStart = 9;
@@ -577,6 +590,7 @@ void k_means_clustering(){
 		}
 		unordered_map<vector<int>, int, HashVI> temp_labels;
 		all_labels[h] = temp_labels;
+		//vector<YRGB> kCenter;
 		YRGB kCenter[k];
 		YRGB total[k];
 		double clsCount[k];
@@ -589,16 +603,77 @@ void k_means_clustering(){
 		int dr, dg, db, cr, cg, cb;
 		vector<int> yrgb; //clsLabelのためやむを得ず（ほんとはstructでやりたい）
 
-		for (int i = 0; i < k; i++){
-			randIndex = (int)rand() % (nData + 1);
-			kCenter[i].y = (int)data[randIndex].y;
-			kCenter[i].r = (int)data[randIndex].r;
-			kCenter[i].g = (int)data[randIndex].g;
-			kCenter[i].b = (int)data[randIndex].b;
-		}
-
 		//クラスタセンタが変化しなくなるまで繰り返す
 		int iterCount = 0;
+		//初期クラスタの選択(kmeans++)
+		int cls_init_count = 0;
+		do{
+			double init_max_dist = 0.0;
+			double init_y, init_r, init_g, init_b, init_temp_dist;
+			YRGB init_p, max_p;
+			if (cls_init_count == 0){
+				randIndex = (int)rand() % (nData + 1);
+				kCenter[cls_init_count].y = (int)data[randIndex].y;
+				kCenter[cls_init_count].r = (int)data[randIndex].r;
+				kCenter[cls_init_count].g = (int)data[randIndex].g;
+				kCenter[cls_init_count].b = (int)data[randIndex].b;
+				//最大距離計算&2個目のクラスタセンタ決定
+				cls_init_count++;
+				for (auto itr = data.begin(); itr != data.end(); ++itr){
+					init_p = *itr;
+					init_y = init_p.y;
+					init_r = init_p.r;
+					init_g = init_p.g;
+					init_b = init_p.b;
+					init_temp_dist = sqrt((init_y - kCenter[0].y)*(init_y - kCenter[0].y) + (init_r - kCenter[0].r)*(init_r - kCenter[0].r) + (init_g - kCenter[0].g)*(init_g - kCenter[0].g) + (init_b - kCenter[0].b)*(init_b - kCenter[0].b));
+					if (init_temp_dist > init_max_dist){
+						max_p = init_p;
+						init_max_dist = init_temp_dist;
+					}
+				}
+				kCenter[cls_init_count] = max_p;
+			}
+			else{
+				//それぞれのクラスタセンタに対する最短点を求める
+				YRGB second_p, min_p;
+				vector<YRGB> temp_min_points;
+				vector<double> temp_max_dists;
+				double second_y, second_r, second_g, second_b;
+				for (int a = 0; a < cls_init_count; a++){
+					double init_min_dist = 1000000000000;
+					second_p = kCenter[a];
+					second_y = second_p.y;
+					second_r = second_p.r;
+					second_g = second_p.g;
+					second_b = second_p.b;
+					for (auto itr = data.begin(); itr != data.end(); ++itr){
+						init_p = *itr;
+						init_y = init_p.y;
+						init_r = init_p.r;
+						init_g = init_p.g;
+						init_b = init_p.b;
+						init_temp_dist = sqrt((init_y - second_y)*(init_y - second_y) + (init_r - second_r)*(init_r - second_r) + (init_g - second_g)*(init_g - second_g) + (init_b - second_b)*(init_b - second_b));
+						if (init_temp_dist < init_min_dist && init_temp_dist != 0.0 && !check_distinct_points(kCenter, init_p, cls_init_count)){
+							min_p = init_p;
+							init_min_dist = init_temp_dist;
+						}
+					}
+					temp_min_points.push_back(min_p);
+					temp_max_dists.push_back(init_min_dist);
+				}
+				int index = 0;
+				int max_index = 0;
+				for (auto itr = temp_max_dists.begin(); itr != temp_max_dists.end(); ++itr){
+					double dist = *itr;
+					if (dist >= init_max_dist){
+						max_index = index;
+					}
+					index++;
+				}
+				kCenter[cls_init_count] = temp_min_points[max_index];
+			}
+			cls_init_count++;
+		} while (cls_init_count < k);
 		do{
 			//クラスタ割り当て
 			changed = false;
