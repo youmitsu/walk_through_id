@@ -308,7 +308,7 @@ bool label_exist (vector<int> yrgb){
 
 //教師付き分類
 int search_label_with_supervised_classification(vector<int> yrgb){
-	const int mask = 11;
+	const int mask = 7;
 	int y, r, g, b, ty, tr, tg, tb;
 	y = yrgb[0];
 	r = yrgb[1];
@@ -331,14 +331,6 @@ int search_label_with_supervised_classification(vector<int> yrgb){
 							min_label = (*labels)[yrgb2];
 						}
 					}
-					/*
-					if (temp_label != 0){
-						double dist = sqrt((ty - y)*(ty - y) + (tr - r)*(tr - r) + (tg - g)*(tg - g) + (tb - b)*(tb - b));
-						if (dist < min_dist){
-							min_dist = dist;
-							min_label = temp_label;
-						}
-					}*/
 				}
 			}
 		}
@@ -348,13 +340,18 @@ int search_label_with_supervised_classification(vector<int> yrgb){
 
 //y値をresized_heightによって正規化する
 int height_normalize(int y){
-	return (int)(((double)y - (double)height_min) / (double)resized_mean * 2000);
+	return (int)(((double)y - (double)height_min) / (double)resized_mean * 1000);
+}
+
+//逆変換
+int inv_height_normalize(int normal_height){
+	return (int)((double)normal_height + (double)height_min / (double)resized_mean * 1000);
 }
 
 //画像からラベルを探索する
 void search_points_from_image(Mat& frame, Label* parts[]){
 	int r, g, b, y, label, normal_y;
-	const int rgb_thresh = 10;
+	const int rgb_thresh = 50;
 	Point p;
 	Vec3b val;
 	vector<int> yrgb;
@@ -551,7 +548,7 @@ Mat resize_and_preproc(Mat& src, bool first=false){
 			Vec3b* ptr = src.ptr<Vec3b>(y);
 			for (x = width_min; x < width_max; x++){
 				Vec3b c = ptr[x];
-				if (c[2] > 10 && c[1] > 10 && c[0] > 10){
+				if (c[2] > 50 && c[1] > 50 && c[0] > 50){
 					//change_label_feature_space(y, c[2], c[1], c[0], true);
 					//cout << height_normalize(y) << endl;
 					p = { height_normalize(y), c[2], c[1], c[0] };
@@ -576,9 +573,9 @@ bool check_distinct_points(YRGB *kCenter, YRGB data, int count){
 	}
 }
 
-void k_means_clustering(){
+void k_means_clustering(Mat& img){
 	const int k = 12;   //ラベルの数
-	const int nStart = 9;
+	const int nStart = 1;
 	double minWcv = 10000000000;     //最小のクラスタ内分散和
 	YRGB bestCenter[k];
 	YRGB p, q;
@@ -636,41 +633,33 @@ void k_means_clustering(){
 			else{
 				//それぞれのクラスタセンタに対する最短点を求める
 				YRGB second_p, min_p;
-				vector<YRGB> temp_min_points;
-				vector<double> temp_max_dists;
 				double second_y, second_r, second_g, second_b;
-				for (int a = 0; a < cls_init_count; a++){
-					double init_min_dist = 1000000000000;
-					second_p = kCenter[a];
-					second_y = second_p.y;
-					second_r = second_p.r;
-					second_g = second_p.g;
-					second_b = second_p.b;
-					for (auto itr = data.begin(); itr != data.end(); ++itr){
-						init_p = *itr;
-						init_y = init_p.y;
-						init_r = init_p.r;
-						init_g = init_p.g;
-						init_b = init_p.b;
+				for (auto itr = data.begin(); itr != data.end(); ++itr){
+					init_p = *itr;
+					if (!check_distinct_points(kCenter, init_p, cls_init_count)){ continue; }
+					init_y = init_p.y;
+					init_r = init_p.r;
+					init_g = init_p.g;
+					init_b = init_p.b;
+					double init_min_dist = 100000000000;
+					for (int a = 0; a < cls_init_count; a++){
+						second_p = kCenter[a];
+						second_y = second_p.y;
+						second_r = second_p.r;
+						second_g = second_p.g;
+						second_b = second_p.b;
 						init_temp_dist = sqrt((init_y - second_y)*(init_y - second_y) + (init_r - second_r)*(init_r - second_r) + (init_g - second_g)*(init_g - second_g) + (init_b - second_b)*(init_b - second_b));
-						if (init_temp_dist < init_min_dist && init_temp_dist != 0.0 && !check_distinct_points(kCenter, init_p, cls_init_count)){
+						if (init_temp_dist < init_min_dist){
 							min_p = init_p;
 							init_min_dist = init_temp_dist;
 						}
 					}
-					temp_min_points.push_back(min_p);
-					temp_max_dists.push_back(init_min_dist);
-				}
-				int index = 0;
-				int max_index = 0;
-				for (auto itr = temp_max_dists.begin(); itr != temp_max_dists.end(); ++itr){
-					double dist = *itr;
-					if (dist >= init_max_dist){
-						max_index = index;
+					if (init_min_dist > init_max_dist){
+						init_max_dist = init_min_dist;
+						max_p = min_p;
 					}
-					index++;
 				}
-				kCenter[cls_init_count] = temp_min_points[max_index];
+				kCenter[cls_init_count] = max_p;
 			}
 			cls_init_count++;
 		} while (cls_init_count < k);
@@ -777,6 +766,41 @@ void k_means_clustering(){
 	data.shrink_to_fit();
 }
 
+//クラスタリングができているか確認用
+void check_each_cluster(){
+	const int x_size = 50;
+	const int y_size = 50;
+	vector<YRGB> check_cluster[LABEL_KIND_NUM];
+	Mat dst_imgs[LABEL_KIND_NUM];
+	int indexes[LABEL_KIND_NUM] = {};
+	for (int i = 0; i < LABEL_KIND_NUM; i++){
+		vector<YRGB> cls;
+		check_cluster[i] = cls;
+		Mat img(Size(x_size, y_size), CV_8UC3);
+		dst_imgs[i] = img;
+	}
+	for (auto itr = labels->begin(); itr != labels->end(); ++itr){
+		int cluster = itr->second;
+		vector<int> key = itr->first;
+		YRGB new_key = { key[0], key[1], key[2], key[3] };
+		check_cluster[cluster-1].push_back(new_key);
+		rectangle(dst_imgs[cluster-1], Point((indexes[cluster-1] % x_size)*2, (indexes[cluster-1] / x_size)*2), Point((indexes[cluster-1] % x_size)*2+1, (indexes[cluster-1] / x_size+5)*2+1), Scalar(key[3], key[2], key[1]));
+		indexes[cluster-1]++;
+	}
+	try{
+		ostringstream oss;
+		for (int i = 0; i < LABEL_KIND_NUM; i++){
+			oss << "cluster" << i << ".png";
+			string file_names = oss.str();
+			imwrite(file_names, dst_imgs[i]);
+			oss.str("");
+		}
+	}
+	catch (runtime_error& ex){
+		printf("failure");
+	}
+}
+
 int _tmain(int argc, _TCHAR* argv[])
 {
 	init_config();
@@ -826,7 +850,9 @@ int _tmain(int argc, _TCHAR* argv[])
 		}
 		else if (count == use_start_frame){
 			resized_img = resize_and_preproc(frame, true);
-			k_means_clustering();
+			k_means_clustering(frame);
+	//		check_each_cluster();
+			break;
 			init_label_class(frame, parts);
 		}
 		else if(count >= use_end_frame){
