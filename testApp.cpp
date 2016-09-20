@@ -97,6 +97,11 @@ struct YRGB{
 	int b;
 };
 
+//関節のモデルを定義
+YRGB joint_position_models[LABEL_KIND_NUM] = { { 28, 110, 219, 141 }, { 88, 179, 155, 202 }, { 133, 77, 132, 182 },
+{ 213, 136, 253, 202 }, { 239, 251, 255, 157 }, { 279, 76, 153, 200 }, { 260, 147, 127, 178 }, { 368, 255, 255, 166 }, { 488, 238, 255, 154 },
+{ 488, 110, 219, 141 }, { 588, 238, 255, 154 }, { 588, 179, 155, 202 } };
+
 //vectorをキーとするハッシュマップを使用するためのクラス
 class HashVI{
 public:
@@ -603,66 +608,9 @@ void k_means_clustering(Mat& img){
 		//クラスタセンタが変化しなくなるまで繰り返す
 		int iterCount = 0;
 		//初期クラスタの選択(kmeans++)
-		int cls_init_count = 0;
-		do{
-			double init_max_dist = 0.0;
-			double init_y, init_r, init_g, init_b, init_temp_dist;
-			YRGB init_p, max_p;
-			if (cls_init_count == 0){
-				randIndex = (int)rand() % (nData + 1);
-				kCenter[cls_init_count].y = (int)data[randIndex].y;
-				kCenter[cls_init_count].r = (int)data[randIndex].r;
-				kCenter[cls_init_count].g = (int)data[randIndex].g;
-				kCenter[cls_init_count].b = (int)data[randIndex].b;
-				//最大距離計算&2個目のクラスタセンタ決定
-				cls_init_count++;
-				for (auto itr = data.begin(); itr != data.end(); ++itr){
-					init_p = *itr;
-					init_y = init_p.y;
-					init_r = init_p.r;
-					init_g = init_p.g;
-					init_b = init_p.b;
-					init_temp_dist = sqrt((init_y - kCenter[0].y)*(init_y - kCenter[0].y) + (init_r - kCenter[0].r)*(init_r - kCenter[0].r) + (init_g - kCenter[0].g)*(init_g - kCenter[0].g) + (init_b - kCenter[0].b)*(init_b - kCenter[0].b));
-					if (init_temp_dist > init_max_dist){
-						max_p = init_p;
-						init_max_dist = init_temp_dist;
-					}
-				}
-				kCenter[cls_init_count] = max_p;
-			}
-			else{
-				//それぞれのクラスタセンタに対する最短点を求める
-				YRGB second_p, min_p;
-				double second_y, second_r, second_g, second_b;
-				for (auto itr = data.begin(); itr != data.end(); ++itr){
-					init_p = *itr;
-					if (!check_distinct_points(kCenter, init_p, cls_init_count)){ continue; }
-					init_y = init_p.y;
-					init_r = init_p.r;
-					init_g = init_p.g;
-					init_b = init_p.b;
-					double init_min_dist = 100000000000;
-					for (int a = 0; a < cls_init_count; a++){
-						second_p = kCenter[a];
-						second_y = second_p.y;
-						second_r = second_p.r;
-						second_g = second_p.g;
-						second_b = second_p.b;
-						init_temp_dist = sqrt((init_y - second_y)*(init_y - second_y) + (init_r - second_r)*(init_r - second_r) + (init_g - second_g)*(init_g - second_g) + (init_b - second_b)*(init_b - second_b));
-						if (init_temp_dist < init_min_dist){
-							min_p = init_p;
-							init_min_dist = init_temp_dist;
-						}
-					}
-					if (init_min_dist > init_max_dist){
-						init_max_dist = init_min_dist;
-						max_p = min_p;
-					}
-				}
-				kCenter[cls_init_count] = max_p;
-			}
-			cls_init_count++;
-		} while (cls_init_count < k);
+		for (int i = 0; i < LABEL_KIND_NUM; i++){
+			kCenter[i] = joint_position_models[i];
+		}
 		do{
 			//クラスタ割り当て
 			changed = false;
@@ -851,8 +799,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		else if (count == use_start_frame){
 			resized_img = resize_and_preproc(frame, true);
 			k_means_clustering(frame);
-	//		check_each_cluster();
-			break;
+			check_each_cluster();
 			init_label_class(frame, parts);
 		}
 		else if(count >= use_end_frame){
