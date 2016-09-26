@@ -36,7 +36,7 @@ using namespace cv;
 
 /*************’è”ŒQ(‚È‚ñ‚©•|‚¢‚©‚ç”z—ñŒn‚Íconst‚É‚µ‚½)****************/
 const string video_urls[ID_COUNT] = { "Hoshino.avi", "Shuno.avi", "Haneda.avi", "Kitazawa.avi" };
-const int use_start_frames[ID_COUNT] = { 400, 210, 532, 1832 };
+const int use_start_frames[ID_COUNT] = { 400, 210, 568, 1832 };
 const int use_frame_nums[ID_COUNT] = { 32, 38, 36, 38 };
 const int rgb_thresh = 10;
 
@@ -72,7 +72,7 @@ vector<double> angles;                                       //ƒtƒŒ[ƒ€‚²‚Æ‚ÌŠÖ
 const string output_labels_filename[ID_COUNT] = { "output_labels_hoshino.txt",  "output_labels_shuno.txt",
 "output_labels_haneda.txt", "output_labels_kitazawa.txt" };
 int height_min, height_max, width_min, width_max;
-int	resized_width, resized_height, resized_mean;
+int	resized_width, resized_height, resized_hmean, resized_wmean;
 
 //ƒOƒ[ƒoƒ‹•Ï”‚Ì‰Šú‰»
 void init_config(){
@@ -90,7 +90,8 @@ void init_config(){
 	use_end_frame = use_start_frame + use_frame_num;
 }
 
-struct YRGB{
+struct XYRGB{
+	int x;
     int y;
 	int r;
 	int g;
@@ -98,9 +99,32 @@ struct YRGB{
 };
 
 //ŠÖß‚Ìƒ‚ƒfƒ‹‚ğ’è‹`
-YRGB joint_position_models[LABEL_KIND_NUM] = { { 28, 110, 219, 141 }, { 88, 179, 155, 202 }, { 133, 77, 132, 182 },
-{ 213, 136, 253, 202 }, { 239, 251, 255, 157 }, { 279, 76, 153, 200 }, { 260, 147, 127, 178 }, { 368, 255, 255, 166 }, { 488, 238, 255, 154 },
-{ 488, 110, 219, 141 }, { 588, 238, 255, 154 }, { 588, 179, 155, 202 } };
+/************‡”Ô**************
+   1:“ª
+   2:ñ
+   3:¶Œ¨
+   4:‰E•I
+   5:‰Eèñ
+   6:¶•I
+   7:¶èñ
+   8:˜
+   9:¶•G
+   10:‰E•G
+   11:¶‘«ñ
+   12:‰E‘«ñ
+*******************************/
+/*
+XYRGB joint_position_models[LABEL_KIND_NUM] = { { 112, 28, 120, 230, 150 }, { 125, 88, 179, 155, 202 }, { 156, 131, 56, 121, 174 },
+{ 86, 215, 131, 250, 201 }, { 8, 260, 147, 127, 178 }, { 160, 240, 255, 255, 161 }, { 173, 368, 255, 255, 166 }, { 106, 279, 76, 153, 200 }, { 57, 491, 215, 238, 137 },
+{ 130, 495, 133, 243, 179 }, { 50, 610, 215, 238, 137 }, { 120, 610, 147, 127, 178 } };*/
+
+XYRGB joint_position_models[LABEL_KIND_NUM] = { { 116, 29, 126, 242, 173 },
+{ 129, 89, 181, 148, 198 }, { 159, 133, 50, 102, 156 },
+{ 91, 212, 129, 250, 191 }, { 6, 239, 156, 134, 185 },
+{ 156, 242, 255, 255, 150 }, { 173, 368, 255, 252, 157 },
+{ 110, 278, 83, 164, 210 }, { 75, 496, 214, 236, 127 },
+{ 152, 487, 124, 232, 162 }, { 60, 600, 214, 242, 128 },
+{ 170, 600, 154, 130, 177 } };
 
 //vector‚ğƒL[‚Æ‚·‚éƒnƒbƒVƒ…ƒ}ƒbƒv‚ğg—p‚·‚é‚½‚ß‚ÌƒNƒ‰ƒX
 class HashVI{
@@ -293,8 +317,8 @@ void change_min_and_max_value(int x, int y, int *max_x, int *max_y,
 }
 
 //w’è‚µ‚½ƒf[ƒ^“_‚ªƒ}ƒbƒv“à‚É‘¶İ‚·‚é‚©
-bool label_exist (vector<int> yrgb){
-	auto itr = labels->find(yrgb);
+bool label_exist (vector<int> xyrgb){
+	auto itr = labels->find(xyrgb);
 	if (itr != labels->end()){
 		return true;
 	}
@@ -312,28 +336,31 @@ bool label_exist (vector<int> yrgb){
 }
 
 //‹³t•t‚«•ª—Ş
-int search_label_with_supervised_classification(vector<int> yrgb){
+int search_label_with_supervised_classification(vector<int> xyrgb){
 	const int mask = 7;
-	int y, r, g, b, ty, tr, tg, tb;
-	y = yrgb[0];
-	r = yrgb[1];
-	g = yrgb[2];
-	b = yrgb[3];
-	vector<int> yrgb2;
+	int x, y, r, g, b, tx, ty, tr, tg, tb;
+	x = xyrgb[0];
+	y = xyrgb[1];
+	r = xyrgb[2];
+	g = xyrgb[3];
+	b = xyrgb[4];
+	vector<int> xyrgb2;
 	double dist;
 	double min_dist = 1000000000.0;
 	int min_label = -1;
-
-	for (ty = y - (int)(mask / 4); ty <= y + (int)(mask / 4); ty++){
-		for (tr = r - (int)(mask / 2); tr <= r + (int)(mask / 2); tr++){
-			for (tg = g - (int)(mask / 2); tg <= g + (int)(mask / 2); tg++){
-				for (tb = b - (int)(mask / 2); tb <= b + (int)(mask / 2); tb++){
-					yrgb2 = {ty, tr, tg, tb};
-					if (label_exist(yrgb2)){
-						double dist = sqrt((ty - y)*(ty - y) + (tr - r)*(tr - r) + (tg - g)*(tg - g) + (tb - b)*(tb - b));
-						if (dist < min_dist){
-							min_dist = dist;
-							min_label = (*labels)[yrgb2];
+	
+	for (tx = x - (int)(mask / 4); tx <= x + (int)(mask / 4); tx++){
+		for (ty = y - (int)(mask / 4); ty <= y + (int)(mask / 4); ty++){
+			for (tr = r - (int)(mask / 2); tr <= r + (int)(mask / 2); tr++){
+				for (tg = g - (int)(mask / 2); tg <= g + (int)(mask / 2); tg++){
+					for (tb = b - (int)(mask / 2); tb <= b + (int)(mask / 2); tb++){
+						xyrgb2 = { tx, ty, tr, tg, tb };
+						if (label_exist(xyrgb2)){
+							double dist = sqrt((tx - x)*(tx - x) + (ty - y)*(ty - y) + (tr - r)*(tr - r) + (tg - g)*(tg - g) + (tb - b)*(tb - b));
+							if (dist < min_dist){
+								min_dist = dist;
+								min_label = (*labels)[xyrgb2];
+							}
 						}
 					}
 				}
@@ -343,37 +370,48 @@ int search_label_with_supervised_classification(vector<int> yrgb){
 	return min_label;
 }
 
+//x’l‚ğresized_width‚É‚æ‚Á‚Ä³‹K‰»‚·‚é
+int width_normalize(int x){
+	return (int)(((double)x - (double)width_min) / (double)resized_wmean * 1000);
+}
+
+//‹t•ÏŠ·
+int inv_width_normalize(int normal_width){
+	return (int)((double)normal_width + (double)height_min / (double)resized_hmean * 1000);
+}
+
 //y’l‚ğresized_height‚É‚æ‚Á‚Ä³‹K‰»‚·‚é
 int height_normalize(int y){
-	return (int)(((double)y - (double)height_min) / (double)resized_mean * 1000);
+	return (int)(((double)y - (double)height_min) / (double)resized_hmean * 1000);
 }
 
 //‹t•ÏŠ·
 int inv_height_normalize(int normal_height){
-	return (int)((double)normal_height + (double)height_min / (double)resized_mean * 1000);
+	return (int)((double)normal_height + (double)height_min / (double)resized_hmean * 1000);
 }
 
 //‰æ‘œ‚©‚çƒ‰ƒxƒ‹‚ğ’Tõ‚·‚é
 void search_points_from_image(Mat& frame, Label* parts[]){
-	int r, g, b, y, label, normal_y;
+	int r, g, b, y, label, normal_x, normal_y;
 	const int rgb_thresh = 50;
 	Point p;
 	Vec3b val;
-	vector<int> yrgb;
+	vector<int> xyrgb;
 	for (int y = height_min; y < height_max + 1; y++){
 		Vec3b* ptr = frame.ptr<Vec3b>(y);
 		for (int x = width_min; x < width_max + 1; x++){
 			p = { x, y };
 			val = ptr[x];
 
+			normal_x = width_normalize(x);
 			normal_y = height_normalize(y);
 			r = val[2];
 			g = val[1];
 			b = val[0];
-			yrgb = { normal_y, r, g, b };
+			xyrgb = { normal_x, normal_y, r, g, b };
 
 			if (r >= rgb_thresh && g >= rgb_thresh && b >= rgb_thresh){
-				label = search_label_with_supervised_classification(yrgb);
+				label = search_label_with_supervised_classification(xyrgb);
 				if (label != -1){
 					parts[label-1]->set_current_points(p);
 				}
@@ -400,32 +438,19 @@ void init_label_class(Mat& frame, Label* parts[]){
 	}
 
 	//•ª—Ş
-	int normal_y, label;
+	int x, y, label;
 	uchar r, g, b;
 	Point p;
 	Vec3b val;
-	vector<int> yrgb;
-	
-	for (int y = height_min; y < height_max+1; y++){
-		Vec3b* ptr = frame.ptr<Vec3b>(y);
-		for (int x = width_min; x < width_max+1; x++){
-			p = { x, y };
-			val = ptr[x];
-
-			normal_y = height_normalize(y);
-			r = val[2];
-			g = val[1];
-			b = val[0];
-			yrgb = { normal_y, r, g, b };
-		
-			if (r >= rgb_thresh && g >= rgb_thresh && b >= rgb_thresh){
-				label = search_label_with_supervised_classification(yrgb);
-				if (label != -1){
-					parts_points[label-1].push_back(Point{ x, y });
-					change_min_and_max_value(x, y, &max_points[(label-1) * 2], &max_points[(label-1) * 2 + 1], &min_points[(label-1) * 2], &min_points[(label-1) * 2 + 1]);
-				}
-			}
-		}
+	vector<int> xyrgb;
+	for (auto itr = labels->begin(); itr != labels->end(); ++itr){
+		xyrgb = itr->first;
+		x = xyrgb[0];
+		y = xyrgb[1];
+		p = Point{ x, y };
+		label = itr->second;
+		parts_points[label - 1].push_back(p);
+		change_min_and_max_value(x, y, &max_points[(label - 1) * 2], &max_points[(label - 1) * 2 + 1], &min_points[(label - 1) * 2], &min_points[(label - 1) * 2 + 1]);
 	}
 	
     //‚»‚ê‚¼‚ê‚Ìƒ‰ƒxƒ‹‚É‚¨‚¯‚édS‚ğ‹‚ß‚é
@@ -507,9 +532,9 @@ void play(VideoCapture& video){
 		waitKey(30);
 	}
 }
-vector<YRGB> data;
+vector<XYRGB> data;
 //‰æ‘œ‚Ì‘Oˆ—iƒmƒCƒYœ‹,ƒŠƒTƒCƒY,‚È‚Çj
-Mat resize_and_preproc(Mat& src, bool first=false){
+void resize_and_preproc(Mat& src, bool first=false){
 	/*************ƒmƒCƒYœ‹*************/
 	const int mask = 9;
 	Mat filtered_img;
@@ -544,32 +569,38 @@ Mat resize_and_preproc(Mat& src, bool first=false){
 	}
 	resized_width = width_max - width_min;
 	resized_height = height_max - height_min;
-	resized_mean = (height_max + height_min) / 2;
+	resized_wmean = (width_max + width_min) / 2;
+	resized_hmean = (height_max + height_min) / 2;
 	Mat resized_img(src, Rect(width_min, height_min, resized_width, resized_height));
 	/***************ƒNƒ‰ƒXƒ^ƒŠƒ“ƒO—p‚Ìƒf[ƒ^\’z****************/
 	if (first){
-		YRGB p;
+		XYRGB p;
 		for (y = height_min; y <= height_max; y++){
 			Vec3b* ptr = src.ptr<Vec3b>(y);
 			for (x = width_min; x < width_max; x++){
 				Vec3b c = ptr[x];
-				if (c[2] > 50 && c[1] > 50 && c[0] > 50){
+				if (c[2] > 30 && c[1] > 30 && c[0] > 30){
 					//change_label_feature_space(y, c[2], c[1], c[0], true);
 					//cout << height_normalize(y) << endl;
-					p = { height_normalize(y), c[2], c[1], c[0] };
+					p = { width_normalize(x), height_normalize(y) , c[2], c[1], c[0] };
 					data.push_back(p);
 				}
 			}
 		}
 	}
-	return resized_img;
+	try{
+		imwrite("resized_img.png", resized_img);
+	}
+	catch (runtime_error& ex){
+		printf("error");
+	}
 }
 
 //d•¡‚µ‚Ä‚¢‚é“_‚ª‚È‚¢‚©‚ğƒ`ƒFƒbƒN
-bool check_distinct_points(YRGB *kCenter, YRGB data, int count){
+bool check_distinct_points(XYRGB *kCenter, XYRGB data, int count){
 	for (int i = 0; i < count; i++){
-		YRGB center = kCenter[i];
-		if (center.y == data.y && center.r == data.r && center.g == data.g && center.b == data.b){
+		XYRGB center = kCenter[i];
+		if (center.x == data.x, center.y == data.y && center.r == data.r && center.g == data.g && center.b == data.b){
 			return false;
 		}
 		else{
@@ -582,8 +613,8 @@ void k_means_clustering(Mat& img){
 	const int k = 12;   //ƒ‰ƒxƒ‹‚Ì”
 	const int nStart = 1;
 	double minWcv = 10000000000;     //Å¬‚ÌƒNƒ‰ƒXƒ^“à•ªU˜a
-	YRGB bestCenter[k];
-	YRGB p, q;
+	XYRGB bestCenter[k];
+	XYRGB p, q;
 	unordered_map<vector<int>, int, HashVI> *all_labels;
 	all_labels = new unordered_map<vector<int>, int, HashVI>[nStart];
 	for (int h = 0; h < nStart; h++){
@@ -593,17 +624,17 @@ void k_means_clustering(Mat& img){
 		unordered_map<vector<int>, int, HashVI> temp_labels;
 		all_labels[h] = temp_labels;
 		//vector<YRGB> kCenter;
-		YRGB kCenter[k];
-		YRGB total[k];
+		XYRGB kCenter[k];
+		XYRGB total[k];
 		double clsCount[k];
 		double dis, disMin;
 		int randIndex;
 		bool changed = false;
 		int nData = data.size();
-		YRGB dp;
-		int dy, cy, minIndex;
+		XYRGB dp;
+		int dx, cx, dy, cy, minIndex;
 		int dr, dg, db, cr, cg, cb;
-		vector<int> yrgb; //clsLabel‚Ì‚½‚ß‚â‚Ş‚ğ“¾‚¸i‚Ù‚ñ‚Æ‚Ístruct‚Å‚â‚è‚½‚¢j
+		vector<int> xyrgb; //clsLabel‚Ì‚½‚ß‚â‚Ş‚ğ“¾‚¸i‚Ù‚ñ‚Æ‚Ístruct‚Å‚â‚è‚½‚¢j
 
 		//ƒNƒ‰ƒXƒ^ƒZƒ“ƒ^‚ª•Ï‰»‚µ‚È‚­‚È‚é‚Ü‚ÅŒJ‚è•Ô‚·
 		int iterCount = 0;
@@ -616,6 +647,7 @@ void k_means_clustering(Mat& img){
 			changed = false;
 			for (int i = 0; i < k; i++){
 				clsCount[i] = 0;
+				total[i].x = 0;
 				total[i].y = 0;
 				total[i].r = 0;
 				total[i].g = 0;
@@ -624,19 +656,21 @@ void k_means_clustering(Mat& img){
 			all_labels[h].clear();
 			//Šeƒf[ƒ^“_‚ÆƒNƒ‰ƒXƒ^ƒZƒ“ƒ^ŠÔ‚Æ‚Ì‹——£‚ğŒvZ
 			for (int i = 0; i < nData; i++){
-				yrgb.clear();
+				xyrgb.clear();
 				dp = data[i];
+				dx = dp.x;
 				dy = dp.y;
 				dr = dp.r;
 				dg = dp.g;
 				db = dp.b;
 				disMin = 10000000000;
 				for (int j = 0; j < k; j++){
+					cx = kCenter[j].x;
 					cy = kCenter[j].y;
 					cr = kCenter[j].r;
 					cg = kCenter[j].g;
 					cb = kCenter[j].b;
-					dis = sqrt((dy - cy)*(dy - cy) + (dr - cr)*(dr - cr) + (dg - cg)*(dg - cg) + (db - cb)*(db - cb));
+					dis = sqrt((dx - cx)*(dx - cx) + (dy - cy)*(dy - cy) + (dr - cr)*(dr - cr) + (dg - cg)*(dg - cg) + (db - cb)*(db - cb));
 					//		cout << dis << endl;
 					if (dis != 0){
 						if (dis < disMin){
@@ -649,8 +683,9 @@ void k_means_clustering(Mat& img){
 						break;
 					}
 				}
-				yrgb = { dy, dr, dg, db };
-				all_labels[h].insert(make_pair(yrgb, minIndex));
+				xyrgb = { dx, dy, dr, dg, db };
+				all_labels[h].insert(make_pair(xyrgb, minIndex));
+				total[minIndex - 1].x += dx;
 				total[minIndex - 1].y += dy;
 				total[minIndex - 1].r += dr;
 				total[minIndex - 1].g += dg;
@@ -660,13 +695,14 @@ void k_means_clustering(Mat& img){
 			//V‚µ‚¢ƒNƒ‰ƒXƒ^ƒZƒ“ƒ^‚ğ“¾‚é
 			//ƒNƒ‰ƒXƒ^“à‚Ì•½‹Ï’l‚ÌZo
 			int countMatch = 0;
-			YRGB mean[k];
+			XYRGB mean[k];
 			for (int i = 0; i < k; i++){
+				mean[i].x = total[i].x / clsCount[i];
 				mean[i].y = total[i].y / clsCount[i];
 				mean[i].r = total[i].r / clsCount[i];
 				mean[i].g = total[i].g / clsCount[i];
 				mean[i].b = total[i].b / clsCount[i];
-				if (mean[i].y == kCenter[i].y && mean[i].r == kCenter[i].r
+				if (mean[i].x == kCenter[i].x && mean[i].y == kCenter[i].y && mean[i].r == kCenter[i].r
 					&& mean[i].g == kCenter[i].g && mean[i].b == kCenter[i].b){
 					countMatch++;
 				}
@@ -688,14 +724,15 @@ void k_means_clustering(Mat& img){
 		vector<int> tp;
 		for (int g = 0; g < nData; g++){
 			p = data[g];
-			tp = { p.y, p.r, p.g, p.b };
+			tp = { p.x, p.y, p.r, p.g, p.b };
 			temp_label = all_labels[h].at(tp);
 			q = kCenter[temp_label];
+			double v_x = (p.x - q.x)*(p.x - q.x);
 			double v_y = (p.y - q.y)*(p.y - q.y);
 			double v_r = (p.r - q.r)*(p.r - q.r);
 			double v_g = (p.g - q.g)*(p.g - q.g);
 			double v_b = (p.b - q.b)*(p.b - q.b);
-			var += round(sqrt(v_y + v_r + v_g + v_b))/1000000000000;
+			var += round(sqrt(v_x + v_y + v_r + v_g + v_b))/1000000000000;
 		}
 		double wcv = var / nData;
 		if (wcv < minWcv){
@@ -714,15 +751,37 @@ void k_means_clustering(Mat& img){
 	data.shrink_to_fit();
 }
 
+//ƒNƒ‰ƒXƒ^“à‚Ì•ª•z‚ğŠm”F
+void output_histgram(){
+	ofstream clsData[LABEL_KIND_NUM];
+	ostringstream oss;
+	for (int i = 0; i < LABEL_KIND_NUM; i++){
+		oss << "cls" << i << ".dat";
+		string str = oss.str();
+		clsData[i].open(str);
+		oss.str("");
+	}
+	int label;
+	vector<int> key;
+	for (auto itr = labels->begin(); itr != labels->end(); ++itr){
+		label = itr->second;
+		key = itr->first;
+		clsData[label-1] << key[2] << " " << key[3] << " " << key[4] << endl;
+	}
+	for (int i = 0; i < LABEL_KIND_NUM; i++){
+		clsData[i].close();
+	}
+}
+
 //ƒNƒ‰ƒXƒ^ƒŠƒ“ƒO‚ª‚Å‚«‚Ä‚¢‚é‚©Šm”F—p
 void check_each_cluster(){
 	const int x_size = 50;
 	const int y_size = 50;
-	vector<YRGB> check_cluster[LABEL_KIND_NUM];
+	vector<XYRGB> check_cluster[LABEL_KIND_NUM];
 	Mat dst_imgs[LABEL_KIND_NUM];
 	int indexes[LABEL_KIND_NUM] = {};
 	for (int i = 0; i < LABEL_KIND_NUM; i++){
-		vector<YRGB> cls;
+		vector<XYRGB> cls;
 		check_cluster[i] = cls;
 		Mat img(Size(x_size, y_size), CV_8UC3);
 		dst_imgs[i] = img;
@@ -730,9 +789,9 @@ void check_each_cluster(){
 	for (auto itr = labels->begin(); itr != labels->end(); ++itr){
 		int cluster = itr->second;
 		vector<int> key = itr->first;
-		YRGB new_key = { key[0], key[1], key[2], key[3] };
+		XYRGB new_key = { key[0], key[1], key[2], key[3], key[4] };
 		check_cluster[cluster-1].push_back(new_key);
-		rectangle(dst_imgs[cluster-1], Point((indexes[cluster-1] % x_size)*2, (indexes[cluster-1] / x_size)*2), Point((indexes[cluster-1] % x_size)*2+1, (indexes[cluster-1] / x_size+5)*2+1), Scalar(key[3], key[2], key[1]));
+		rectangle(dst_imgs[cluster-1], Point((indexes[cluster-1] % x_size)*2, (indexes[cluster-1] / x_size)*2), Point((indexes[cluster-1] % x_size)*2+1, (indexes[cluster-1] / x_size+5)*2+1), Scalar(key[4], key[3], key[2]));
 		indexes[cluster-1]++;
 	}
 	try{
@@ -797,9 +856,10 @@ int _tmain(int argc, _TCHAR* argv[])
 			continue;
 		}
 		else if (count == use_start_frame){
-			resized_img = resize_and_preproc(frame, true);
+			resize_and_preproc(frame, true);
 			k_means_clustering(frame);
 			check_each_cluster();
+			output_histgram();
 			init_label_class(frame, parts);
 		}
 		else if(count >= use_end_frame){
@@ -807,8 +867,9 @@ int _tmain(int argc, _TCHAR* argv[])
 			break;
 		}
 		else{
+			break;
 			if (MODE == 1){
-				resized_img = resize_and_preproc(frame);
+				resize_and_preproc(frame);
 				change_prev_and_current(parts);
 				search_points_from_image(frame, parts);
 				set_cog_each_label(parts);
@@ -868,7 +929,10 @@ int _tmain(int argc, _TCHAR* argv[])
 				}
 				n++;
 			}
-		}
+			for (int i = 0; i < LABEL_KIND_NUM; i++){
+				XYRGB model = joint_position_models[i];
+				circle(dst_img, Point{ model.x, model.y }, 5, Scalar(model.b, model.g, model.r), -1);
+			}		}
 		try{
 			imwrite(filename[count - use_start_frame], dst_img);
 		}
