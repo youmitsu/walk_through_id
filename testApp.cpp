@@ -16,7 +16,7 @@
 //#pragma comment(lib, "libfftw3l-3.lib")
 #define PI 3.141592
 #define LOOKUP_SIZE 100                                  //ルックアップテーブルのデフォルトサイズ
-#define LABEL_KIND_NUM 12                                 //取得したいラベルの種類数
+#define LABEL_KIND_NUM 13                                 //取得したいラベルの種類数
 #define AROUND_PIXEL_X 200                               //現在の座標の周りの探索する際のXの範囲
 #define AROUND_PIXEL_Y 50                                //                              Yの範囲
 #define ID_COUNT 4                                       //データとなる動画の数
@@ -25,7 +25,7 @@
 #define FEATURE_KIND 2
 
 /*******「誰の」「何の処理か」「特徴量」を設定********/
-#define ID 2                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
+#define ID 3                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
 #define MODE 1                                           //0:ラベリングモード 1:追跡モード 2:再生モード
 #define FEATURE 0                                        //0:股の角度、1:膝の角度
 #define HIST 1                                           //ヒストグラム出力
@@ -118,13 +118,8 @@ XYRGB joint_position_models[LABEL_KIND_NUM] = { { 112, 28, 120, 230, 150 }, { 12
 { 86, 215, 131, 250, 201 }, { 8, 260, 147, 127, 178 }, { 160, 240, 255, 255, 161 }, { 173, 368, 255, 255, 166 }, { 106, 279, 76, 153, 200 }, { 57, 491, 215, 238, 137 },
 { 130, 495, 133, 243, 179 }, { 50, 610, 215, 238, 137 }, { 120, 610, 147, 127, 178 } };*/
 
-XYRGB joint_position_models[LABEL_KIND_NUM] = { { 116, 29, 126, 242, 173 },
-{ 129, 89, 181, 148, 198 }, { 159, 133, 50, 102, 156 },
-{ 91, 212, 129, 250, 191 }, { 6, 239, 156, 134, 185 },
-{ 156, 242, 255, 255, 150 }, { 173, 368, 255, 252, 157 },
-{ 110, 278, 83, 164, 210 }, { 75, 496, 214, 236, 127 },
-{ 152, 487, 124, 232, 162 }, { 60, 600, 214, 242, 128 },
-{ 170, 600, 154, 130, 177 } };
+Point joint_position_models[LABEL_KIND_NUM] = { {67, 32 }, { 58, 129 }, { 65, 188 }, { 46, 151 }, { 36, 270 },
+{ 3, 353 }, { 57, 329 }, { 83, 304 }, { 82, 460 }, { 29, 573 }, { 70, 573 }, { 15, 750 }, {84, 734} };
 
 //vectorをキーとするハッシュマップを使用するためのクラス
 class HashVI{
@@ -249,7 +244,7 @@ void Label::clear_prev_points(){
 	prev_points.clear();
 }
 
-unordered_map<vector<int>, int, HashVI> *labels;  //key：座標、value：ラベル番号
+unordered_map<vector<int>, int, HashVI> labels;  //key：座標、value：ラベル番号
 vector<int> label_list;                          //全ラベルの一覧
 unordered_map<int, Vec3b> label_color_list;      //ラベルごとの色
 
@@ -291,12 +286,247 @@ bool point_validation(int x, int y, int width, int height, int dimension = 2, in
 }
 
 //ランダムなRGB値を返す
-Scalar get_label_color(){
+Scalar get_random_color(){
 	const int MAX_VALUE = 255;
 	unsigned int r = rand() % MAX_VALUE;
 	unsigned int g = rand() % MAX_VALUE;
 	unsigned int b = rand() % MAX_VALUE;
 	return Scalar(r, g, b);
+}
+
+Vec3b get_label_color(){
+	const int MAX_VALUE = 255;
+	unsigned int r = rand() % MAX_VALUE;
+	unsigned int g = rand() % MAX_VALUE;
+	unsigned int b = rand() % MAX_VALUE;
+	return Vec3b(r, g, b);
+}
+
+//周辺座標のラベルを取得
+int gather_around_label(vector<int> point, int width, int height){
+	if (point_validation(point[0], point[1], width, height)){
+		return -1;
+	}
+	else{
+		return labels[point];
+	}
+}
+
+//複数のラベル種類の存在有無の判定
+bool many_kind_label(vector<int> labels){
+	int kind1, kind2;
+	int count = 0;
+	for (auto itr = labels.begin(); itr != labels.end(); ++itr){
+		if (count == 0){
+			kind1 = *itr;
+		}
+		kind2 = *itr;
+		count++;
+	}
+	if (kind1 != kind2){
+		return true;
+	}
+	else{
+		return false;
+	}
+}
+
+//画素に新たなラベルを割り当てる
+void assign_label(int x, int y, int width, int height){
+	int l; //ラベルの一時代入用
+	/********変数宣言*********************************************
+	* point: 注目点                                              *
+	* leftup: 左上の座標                                         *
+	* up: 真上の座標                                             *
+	* rightup: 右上の座標                                        *
+	* left: 真左の座標                                           *
+	* valid_labels: 不正な座標(-1,1)などが含まれていないラベル群 *
+	**************************************************************/
+	vector<int> point{ x, y }, leftup{ x - 1, y - 1 }, up{ x, y - 1 },
+		rightup{ x + 1, y - 1 }, left{ x - 1, y }, valid_labels;
+
+	//valid_labelsに不正な座標以外を代入
+	l = gather_around_label(leftup, width, height);
+	if (l != -1){
+		valid_labels.push_back(l);
+	}
+	l = gather_around_label(up, width, height);
+	if (l != -1){
+		valid_labels.push_back(l);
+	}
+	l = gather_around_label(rightup, width, height);
+	if (l != -1){
+		valid_labels.push_back(l);
+	}
+	l = gather_around_label(left, width, height);
+	if (l != -1){
+		valid_labels.push_back(l);
+	}
+
+	//valid_labelsのゼロのカウントとラベルの種類、最小値を計算
+	int zero_count = 0;
+	vector<int> labels_except_zero;
+	int min_label_num = 1000;
+	for (auto itr = valid_labels.begin(); itr != valid_labels.end(); ++itr){
+		if (*itr == 0){
+			zero_count++;
+		}
+		else{
+			labels_except_zero.push_back(*itr);  //0以外のラベルを格納
+			//ラベルの最小値計算
+			if (*itr < min_label_num){
+				min_label_num = *itr;
+			}
+		}
+	}
+
+	//ラベル割り当て
+	if (zero_count == valid_labels.size()){
+		latest_label_num += 1;
+		labels[point] = latest_label_num;
+	}
+	else{
+		labels[point] = min_label_num;
+		if (many_kind_label(labels_except_zero)){
+			for (int i = 0; i < labels_except_zero.size(); i++){
+				if (labels_except_zero[i] != min_label_num){
+					lookup_table[labels_except_zero[i]] = min_label_num;
+				}
+			}
+		}
+	}
+}
+
+//lookupテーブルからラベル番号を参照するときに用いる(ネストしているラベルに対応するため)
+int reference_label(int input_label){
+	int dst_label = lookup_table[input_label];
+	if (input_label == dst_label){
+		auto itr = label_list.begin();
+		itr = find(itr, label_list.end(), dst_label);
+		if (itr == label_list.end()){
+			label_list.push_back(dst_label);
+			label_color_list[dst_label] = get_label_color();
+			/*	cout << dst_label << endl;
+			cout << label_color_list[dst_label] << endl;*/
+		}
+	}
+	else{
+		dst_label = reference_label(dst_label);
+	}
+	return dst_label;
+}
+
+//int data_size_per_cls[LABEL_KIND_NUM] = {};
+//ラベリング本体
+void labeling(Mat& frame){
+	Mat gray_img, thre_img;
+	cvtColor(frame, gray_img, CV_RGB2GRAY);
+	threshold(gray_img, thre_img, 0, 255, THRESH_BINARY | THRESH_OTSU);
+	const int width = thre_img.cols;
+	const int height = thre_img.rows;
+	const int label_size_thresh = 30;
+
+	//ラベリングのためのルックアップテーブルを用意
+	for (int i = 0; i < LOOKUP_SIZE; i++){
+		lookup_table[i] = i;
+	}
+
+	//全画素ラベル初期化
+	for (int y = height_min; y <= height_max; y++){
+		unsigned char* ptr = thre_img.ptr<unsigned char>(y);
+		for (int x = width_min; x < width_max; x++){
+			int pt = ptr[x];
+			vector<int> v{ x, y };
+			labels[v] = 0;
+		}
+	}
+
+	//ラベリング実行
+	for (int y = height_min; y < height_max; y++){
+		unsigned char* ptr = thre_img.ptr<unsigned char>(y);
+		for (int x = width_min; x < width_max; x++){
+			if (ptr[x] > 230){
+				assign_label(x, y, width, height);
+			}
+		}
+	}
+
+	//ルックアップテーブルを用いてラベルの書き換え
+	for (auto itr = labels.begin(); itr != labels.end(); ++itr){
+		int fixed_label = reference_label(itr->second);
+		labels[itr->first] = fixed_label;
+	}
+	/********雑音除去のコード(時間あるとき続き実装)********/
+	/*
+	unordered_map<int, int> data_size_cls;
+	for (auto itr = label_list.begin(); itr != label_list.end(); ++itr){
+		int label = *itr;
+		data_size_cls[label] = 0;
+	}
+	vector<int> point;
+	int label;
+	//面積が明らかに少ないラベル(雑音)の除去
+	for (auto itr = labels.begin(); itr != labels.end(); ++itr){
+		label = itr->second;
+		data_size_cls[label]++;
+	}
+	for (auto itr = data_size_cls.begin(); itr != data_size_cls.end(); ++itr){
+		int size = itr->second;
+		if (size < label_size_thresh){
+			//閾値を満たさないラベルがあればlabelsから削除(めんどい)
+		}
+	}
+	*/
+	/******************************************************/
+
+}
+
+//ラベリング結果をテキストファイルに書き出す
+void output_labels(){
+	try{
+		if (labels.empty()){ throw "Exception: labelsが空です"; }
+	}
+	catch (char* e){
+		cout << e;
+	}
+	ofstream out_labels(output_labels_filename[ID]);
+	for (int y = 0; y < height; y++){
+		for (int x = 0; x < width; x++){
+			vector<int> point{ x, y };
+			int label = labels[point];
+			if (label != 0){
+				out_labels << x << "," << y << "," << label << endl;
+			}
+		}
+	}
+	out_labels.close();
+}
+
+//ラベリング結果のファイルをインポートし、labelsに代入する
+void import_labels(){
+	ifstream input_labels_file;
+	input_labels_file.open(output_labels_filename[ID]);
+	if (input_labels_file.fail()){
+		cout << "Exception: ファイルが見つかりません。" << endl;
+		cin.get();
+	}
+
+	string str;
+	int x, y, l, c;
+	vector<int> p;
+	while (getline(input_labels_file, str)){
+		string tmp;
+		istringstream stream(str);
+		c = 0;
+		while (getline(stream, tmp, ',')){
+			if (c == 0){ x = stoi(tmp); }
+			else if (c == 1){ y = stoi(tmp); }
+			else{ l = stoi(tmp); }
+			c++;
+		}
+		p = { x, y };
+		labels[p] = l;
+	}
 }
 
 //最大値と最小値を求める
@@ -317,7 +547,7 @@ void change_min_and_max_value(int x, int y, int *max_x, int *max_y,
 }
 
 //指定したデータ点がマップ内に存在するか
-bool label_exist (vector<int> xyrgb){
+/*bool label_exist (vector<int> xyrgb){
 	auto itr = labels->find(xyrgb);
 	if (itr != labels->end()){
 		return true;
@@ -332,9 +562,10 @@ bool label_exist (vector<int> xyrgb){
 	}
 	else{
 		return true;
-	}*/
-}
+	}
+}*/
 
+/*
 //教師付き分類
 int search_label_with_supervised_classification(vector<int> xyrgb){
 	const int mask = 7;
@@ -368,28 +599,27 @@ int search_label_with_supervised_classification(vector<int> xyrgb){
 		}
 	}
 	return min_label;
-}
+}*/
 
-//x値をresized_widthによって正規化する
 int width_normalize(int x){
 	return (int)(((double)x - (double)width_min) / (double)resized_wmean * 1000);
 }
 
 //逆変換
 int inv_width_normalize(int normal_width){
-	return (int)((double)normal_width + (double)height_min / (double)resized_hmean * 1000);
+	return (int)(((double)resized_wmean*(double)normal_width / 1000.0) + (double)width_min);
 }
 
-//y値をresized_heightによって正規化する
 int height_normalize(int y){
 	return (int)(((double)y - (double)height_min) / (double)resized_hmean * 1000);
 }
 
 //逆変換
 int inv_height_normalize(int normal_height){
-	return (int)((double)normal_height + (double)height_min / (double)resized_hmean * 1000);
+	return (int)(((double)resized_hmean*(double)normal_height / 1000.0) + (double)height_min);
 }
 
+/*
 //画像からラベルを探索する
 void search_points_from_image(Mat& frame, Label* parts[]){
 	int r, g, b, y, label, normal_x, normal_y;
@@ -419,6 +649,25 @@ void search_points_from_image(Mat& frame, Label* parts[]){
 		}
 	}
 }
+*/
+
+void explore_withX(int expNum){
+
+}
+
+void explore_withY(int expNum){
+	while (true){
+	}
+}
+
+void assign_joint_to_label(){
+	const int phase_size = 5;
+	const int phase_label[phase_size] = { 1, 3, 5, 2, 2 };
+	for (int i = 0; i < phase_size; i++){
+		explore_withX(phase_label[i]);
+		explore_withY(phase_label[i]);
+	}
+}
 
 //Labelクラスを初期化(※リファクタリングしたいなー)
 void init_label_class(Mat& frame, Label* parts[]){
@@ -443,7 +692,7 @@ void init_label_class(Mat& frame, Label* parts[]){
 	Point p;
 	Vec3b val;
 	vector<int> xyrgb;
-	for (auto itr = labels->begin(); itr != labels->end(); ++itr){
+	for (auto itr = labels.begin(); itr != labels.end(); ++itr){
 		xyrgb = itr->first;
 		x = xyrgb[0];
 		y = xyrgb[1];
@@ -608,7 +857,7 @@ bool check_distinct_points(XYRGB *kCenter, XYRGB data, int count){
 		}
 	}
 }
-
+/*
 void k_means_clustering(Mat& img){
 	const int k = 12;   //ラベルの数
 	const int nStart = 1;
@@ -750,7 +999,8 @@ void k_means_clustering(Mat& img){
 	data.clear();
 	data.shrink_to_fit();
 }
-
+*/
+/*
 //クラスタ内の分布を確認
 void output_histgram(){
 	ofstream clsData[LABEL_KIND_NUM];
@@ -772,7 +1022,8 @@ void output_histgram(){
 		clsData[i].close();
 	}
 }
-
+*/
+/*
 //クラスタリングができているか確認用
 void check_each_cluster(){
 	const int x_size = 50;
@@ -807,7 +1058,7 @@ void check_each_cluster(){
 		printf("failure");
 	}
 }
-
+*/
 int _tmain(int argc, _TCHAR* argv[])
 {
 	init_config();
@@ -856,11 +1107,24 @@ int _tmain(int argc, _TCHAR* argv[])
 			continue;
 		}
 		else if (count == use_start_frame){
-			resize_and_preproc(frame, true);
-			k_means_clustering(frame);
+			resize_and_preproc(frame);
+			labeling(frame);
+			output_labels();
+			for (int y = 0; y < height; y++){
+				Vec3b* ptr = frame.ptr<Vec3b>(y);
+				for (int x = 0; x < width; x++){
+					vector<int> point{ x, y };
+					int label = labels[point];
+					if (label != 0){
+						ptr[x] = label_color_list[label];
+					}
+				}
+			}
+/*			resize_and_preproc(frame, true);
+            k_means_clustering(frame);
 			check_each_cluster();
 			output_histgram();
-			init_label_class(frame, parts);
+			init_label_class(frame, parts);*/
 		}
 		else if(count >= use_end_frame){
 			//対象となるフレームが終わったらループを抜ける
@@ -871,7 +1135,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			if (MODE == 1){
 				resize_and_preproc(frame);
 				change_prev_and_current(parts);
-				search_points_from_image(frame, parts);
+//				search_points_from_image(frame, parts);
 				set_cog_each_label(parts);
 			}
 			else{
@@ -910,7 +1174,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			//	cout << parts[i]->get_cog()[count - use_start_frame].x << ", " << parts[i]->get_cog()[count - use_start_frame].y << endl;
 			//	circle(dst_img, parts[i]->get_cog()[count - use_start_frame], 5, get_label_color(), -1);
 			}
-
+			/*
 			Scalar test_colors[LABEL_KIND_NUM] = { { 0, 0, 255 }, { 0, 255, 0 }, { 255, 0, 0}, { 0, 255, 255 },
 			{ 255, 255, 0 }, { 255, 0, 255 }, { 0, 0, 125 }, { 0, 125, 0 } ,
 			{ 125, 0, 0 }, { 0, 125, 125 }, { 125, 0, 125 }, { 125, 125, 0 } };
@@ -928,11 +1192,14 @@ int _tmain(int argc, _TCHAR* argv[])
 					rectangle(dst_img, p, p, test_colors[n]);
 				}
 				n++;
-			}
+			}*/
 			for (int i = 0; i < LABEL_KIND_NUM; i++){
-				XYRGB model = joint_position_models[i];
-				circle(dst_img, Point{ model.x, model.y }, 5, Scalar(model.b, model.g, model.r), -1);
-			}		}
+				Point model = joint_position_models[i];
+				cout << inv_width_normalize(model.x) << "," << inv_height_normalize(model.y) << endl;
+				circle(dst_img, Point{ inv_width_normalize(model.x), inv_height_normalize(model.y) }, 5, Scalar(255, 255, 255), -1);
+			}
+		//	rectangle(dst_img, Point{ width_min, height_min }, Point{ width_max, height_max }, Scalar(255, 0, 0));
+		}
 		try{
 			imwrite(filename[count - use_start_frame], dst_img);
 		}
