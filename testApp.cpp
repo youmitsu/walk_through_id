@@ -379,7 +379,6 @@ void assign_label(int x, int y, int width, int height){
 			}
 		}
 	}
-
 	//ラベル割り当て
 	if (zero_count == valid_labels.size()){
 		latest_label_num += 1;
@@ -416,11 +415,30 @@ int reference_label(int input_label){
 	return dst_label;
 }
 
+//ラベル探索の際に使用
+int labels_minY[LABEL_KIND_NUM];
+int labels_minX[LABEL_KIND_NUM];
+unordered_map<int, int> index_of_labels;
+
+void check_minY(int label, int y){
+	if (y < labels_minY[label]){
+		labels_minY[label] = y;
+	}
+}
+
+void check_minX(int label, int x){
+	if (x < labels_minX[label]){
+		labels_minX[label] = x;
+	}
+}
+
 //int data_size_per_cls[LABEL_KIND_NUM] = {};
 //ラベリング本体
 void labeling(Mat& frame){
-	Mat gray_img, thre_img;
-	cvtColor(frame, gray_img, CV_RGB2GRAY);
+	const int mask = 9;
+	Mat gray_img, filtered_img, thre_img;
+	medianBlur(frame, filtered_img, mask);
+	cvtColor(filtered_img, gray_img, CV_RGB2GRAY);
 	threshold(gray_img, thre_img, 0, 255, THRESH_BINARY | THRESH_OTSU);
 	const int width = thre_img.cols;
 	const int height = thre_img.rows;
@@ -429,6 +447,8 @@ void labeling(Mat& frame){
 	//ラベリングのためのルックアップテーブルを用意
 	for (int i = 0; i < LOOKUP_SIZE; i++){
 		lookup_table[i] = i;
+		labels_minY[i] = 1000000000;
+		labels_minX[i] = 1000000000;
 	}
 
 	//全画素ラベル初期化
@@ -445,8 +465,9 @@ void labeling(Mat& frame){
 	for (int y = height_min; y < height_max; y++){
 		unsigned char* ptr = thre_img.ptr<unsigned char>(y);
 		for (int x = width_min; x < width_max; x++){
-			if (ptr[x] > 230){
-				assign_label(x, y, width, height);
+			int p = ptr[x];
+			if (p == 255){
+				assign_label(x, y, resized_width, resized_height);
 			}
 		}
 	}
@@ -455,6 +476,18 @@ void labeling(Mat& frame){
 	for (auto itr = labels.begin(); itr != labels.end(); ++itr){
 		int fixed_label = reference_label(itr->second);
 		labels[itr->first] = fixed_label;
+	}
+
+	int index = 0;
+	for (auto itr = label_list.begin(); itr != label_list.end(); ++itr){
+		index_of_labels[*itr] = index;
+		index++;
+	}
+	for (auto itr = labels.begin(); itr != labels.end(); ++itr){
+		vector<int> point = itr->first;
+		int label = itr->second;
+		check_minY(index_of_labels[label], point[1]);
+		check_minX(index_of_labels[label], point[0]);
 	}
 	/********雑音除去のコード(時間あるとき続き実装)********/
 	/*
