@@ -65,14 +65,9 @@ int use_frame_num;                                           //g—p‚·‚éƒtƒŒ[ƒ€
 int use_end_frame;                                           //“®‰æ‚©‚çg‚¤ÅŒã‚ÌƒtƒŒ[ƒ€
 int label_num_by_id[LABEL_KIND_NUM];                         //æ“¾‚µ‚½‚¢ŠÖß‚ÉŠY“–‚·‚éƒ‰ƒxƒ‹”Ô†‚ğŠi”[
 unordered_map<int, int> lookup_table;                        //ƒ‹ƒbƒNƒAƒbƒvƒe[ƒuƒ‹
-int latest_label_num = 0;                                    //ƒ‰ƒxƒŠƒ“ƒO‚Åg—p‚·‚é
-int width;                                                   //‰æ‘œ‚Ì•
-int height;                                                  //‚‚³
 vector<double> angles;                                       //ƒtƒŒ[ƒ€‚²‚Æ‚ÌŠÖß‚ÌŠp“x
 const string output_labels_filename[ID_COUNT] = { "output_labels_hoshino.txt",  "output_labels_shuno.txt",
 "output_labels_haneda.txt", "output_labels_kitazawa.txt" };
-int height_min, height_max, width_min, width_max;
-int	resized_width, resized_height, resized_hmean, resized_wmean;
 
 //ƒOƒ[ƒoƒ‹•Ï”‚Ì‰Šú‰»
 void init_config(){
@@ -332,7 +327,7 @@ bool many_kind_label(vector<int> labels){
 }
 
 //‰æ‘f‚ÉV‚½‚Èƒ‰ƒxƒ‹‚ğŠ„‚è“–‚Ä‚é
-void assign_label(int x, int y, int width, int height){
+void assign_label(int x, int y, int width, int height ,int* latest_label_num){
 	int l; //ƒ‰ƒxƒ‹‚Ìˆê‘ã“ü—p
 	/********•Ï”éŒ¾*********************************************
 	* point: ’–Ú“_                                              *
@@ -381,8 +376,8 @@ void assign_label(int x, int y, int width, int height){
 	}
 	//ƒ‰ƒxƒ‹Š„‚è“–‚Ä
 	if (zero_count == valid_labels.size()){
-		latest_label_num += 1;
-		labels[point] = latest_label_num;
+		*latest_label_num += 1;
+		labels[point] = *latest_label_num;
 	}
 	else{
 		labels[point] = min_label_num;
@@ -434,15 +429,16 @@ void check_minX(int label, int x){
 
 //int data_size_per_cls[LABEL_KIND_NUM] = {};
 //ƒ‰ƒxƒŠƒ“ƒO–{‘Ì
-void labeling(Mat& frame){
+void labeling(Mat& frame, int height_min, int height_max, int width_min, int width_max){
 	const int mask = 9;
-	Mat gray_img, filtered_img, thre_img;
-	medianBlur(frame, filtered_img, mask);
-	cvtColor(filtered_img, gray_img, CV_RGB2GRAY);
+	Mat gray_img, thre_img;
+	cvtColor(frame, gray_img, CV_RGB2GRAY);
 	threshold(gray_img, thre_img, 0, 255, THRESH_BINARY | THRESH_OTSU);
+	imwrite("thre_image.png", thre_img);
 	const int width = thre_img.cols;
 	const int height = thre_img.rows;
 	const int label_size_thresh = 30;
+	int latest_label_num = 0;                                    //‚à‚Á‚Æ‚àV‚µ‚¢ƒ‰ƒxƒ‹
 
 	//ƒ‰ƒxƒŠƒ“ƒO‚Ì‚½‚ß‚Ìƒ‹ƒbƒNƒAƒbƒvƒe[ƒuƒ‹‚ğ—pˆÓ
 	for (int i = 0; i < LOOKUP_SIZE; i++){
@@ -467,7 +463,7 @@ void labeling(Mat& frame){
 		for (int x = width_min; x < width_max; x++){
 			int p = ptr[x];
 			if (p == 255){
-				assign_label(x, y, resized_width, resized_height);
+				assign_label(x, y, frame.cols, frame.rows, &latest_label_num);
 			}
 		}
 	}
@@ -489,6 +485,8 @@ void labeling(Mat& frame){
 		check_minY(index_of_labels[label], point[1]);
 		check_minX(index_of_labels[label], point[0]);
 	}
+
+
 	/********G‰¹œ‹‚ÌƒR[ƒh(ŠÔ‚ ‚é‚Æ‚«‘±‚«À‘•)********/
 	/*
 	unordered_map<int, int> data_size_cls;
@@ -515,7 +513,7 @@ void labeling(Mat& frame){
 }
 
 //ƒ‰ƒxƒŠƒ“ƒOŒ‹‰Ê‚ğƒeƒLƒXƒgƒtƒ@ƒCƒ‹‚É‘‚«o‚·
-void output_labels(){
+void output_labels(int width, int height){
 	try{
 		if (labels.empty()){ throw "Exception: labels‚ª‹ó‚Å‚·"; }
 	}
@@ -579,110 +577,23 @@ void change_min_and_max_value(int x, int y, int *max_x, int *max_y,
 	}
 }
 
-//w’è‚µ‚½ƒf[ƒ^“_‚ªƒ}ƒbƒv“à‚É‘¶İ‚·‚é‚©
-/*bool label_exist (vector<int> xyrgb){
-	auto itr = labels->find(xyrgb);
-	if (itr != labels->end()){
-		return true;
-	}
-	else{
-		return false;
-	}
-	/*int label = labels[yrgb];
-	if (label == 0){
-		labels.erase(yrgb);
-		return false;
-	}
-	else{
-		return true;
-	}
-}*/
-
-/*
-//‹³t•t‚«•ª—Ş
-int search_label_with_supervised_classification(vector<int> xyrgb){
-	const int mask = 7;
-	int x, y, r, g, b, tx, ty, tr, tg, tb;
-	x = xyrgb[0];
-	y = xyrgb[1];
-	r = xyrgb[2];
-	g = xyrgb[3];
-	b = xyrgb[4];
-	vector<int> xyrgb2;
-	double dist;
-	double min_dist = 1000000000.0;
-	int min_label = -1;
-	
-	for (tx = x - (int)(mask / 4); tx <= x + (int)(mask / 4); tx++){
-		for (ty = y - (int)(mask / 4); ty <= y + (int)(mask / 4); ty++){
-			for (tr = r - (int)(mask / 2); tr <= r + (int)(mask / 2); tr++){
-				for (tg = g - (int)(mask / 2); tg <= g + (int)(mask / 2); tg++){
-					for (tb = b - (int)(mask / 2); tb <= b + (int)(mask / 2); tb++){
-						xyrgb2 = { tx, ty, tr, tg, tb };
-						if (label_exist(xyrgb2)){
-							double dist = sqrt((tx - x)*(tx - x) + (ty - y)*(ty - y) + (tr - r)*(tr - r) + (tg - g)*(tg - g) + (tb - b)*(tb - b));
-							if (dist < min_dist){
-								min_dist = dist;
-								min_label = (*labels)[xyrgb2];
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return min_label;
-}*/
-
-int width_normalize(int x){
+int width_normalize(int x, int width_min, int resized_wmean ){
 	return (int)(((double)x - (double)width_min) / (double)resized_wmean * 1000);
 }
 
 //‹t•ÏŠ·
-int inv_width_normalize(int normal_width){
+int inv_width_normalize(int normal_width, int resized_wmean, int width_min){
 	return (int)(((double)resized_wmean*(double)normal_width / 1000.0) + (double)width_min);
 }
 
-int height_normalize(int y){
+int height_normalize(int y, int height_min, int resized_hmean){
 	return (int)(((double)y - (double)height_min) / (double)resized_hmean * 1000);
 }
 
 //‹t•ÏŠ·
-int inv_height_normalize(int normal_height){
+int inv_height_normalize(int normal_height, int resized_hmean, int height_min){
 	return (int)(((double)resized_hmean*(double)normal_height / 1000.0) + (double)height_min);
 }
-
-/*
-//‰æ‘œ‚©‚çƒ‰ƒxƒ‹‚ğ’Tõ‚·‚é
-void search_points_from_image(Mat& frame, Label* parts[]){
-	int r, g, b, y, label, normal_x, normal_y;
-	const int rgb_thresh = 50;
-	Point p;
-	Vec3b val;
-	vector<int> xyrgb;
-	for (int y = height_min; y < height_max + 1; y++){
-		Vec3b* ptr = frame.ptr<Vec3b>(y);
-		for (int x = width_min; x < width_max + 1; x++){
-			p = { x, y };
-			val = ptr[x];
-
-			normal_x = width_normalize(x);
-			normal_y = height_normalize(y);
-			r = val[2];
-			g = val[1];
-			b = val[0];
-			xyrgb = { normal_x, normal_y, r, g, b };
-
-			if (r >= rgb_thresh && g >= rgb_thresh && b >= rgb_thresh){
-				label = search_label_with_supervised_classification(xyrgb);
-				if (label != -1){
-					parts[label-1]->set_current_points(p);
-				}
-			}
-		}
-	}
-}
-*/
 
 void explore_withX(int expNum){
 
@@ -800,8 +711,8 @@ void play(VideoCapture& video){
 	while (1){
 		count++;
 		video >> frame;
-		width = frame.cols;
-		height = frame.rows;
+		int width = frame.cols;
+		int height = frame.rows;
 		if (frame.empty() || video.get(CV_CAP_PROP_POS_AVI_RATIO) == 1){
 			break;
 		}
@@ -816,7 +727,8 @@ void play(VideoCapture& video){
 }
 vector<XYRGB> data;
 //‰æ‘œ‚Ì‘Oˆ—iƒmƒCƒYœ‹,ƒŠƒTƒCƒY,‚È‚Çj
-void resize_and_preproc(Mat& src, bool first=false){
+void resize_and_preproc(Mat& src, int* height_min_ptr, int* height_max_ptr, int* width_min_ptr, int* width_max_ptr,
+	int* resized_width_ptr, int* resized_height_ptr, int* resized_wmean_ptr, int* resized_hmean_ptr, bool first=false){
 	/*************ƒmƒCƒYœ‹*************/
 	const int mask = 9;
 	Mat filtered_img;
@@ -824,13 +736,13 @@ void resize_and_preproc(Mat& src, bool first=false){
 	/***********‰æ‘œ‚ÌƒŠƒTƒCƒY************/
 	int y, x;
 	//const int extra_y_size = 20;
-	height_min = 1000000000;
-	height_max = 0;
-	width_min = 1000000000;
-	width_max = 0;
-	for (y = 0; y < height; y++){
+    int height_min = 1000000000;
+	int height_max = 0;
+	int width_min = 1000000000;
+	int width_max = 0;
+	for (y = 0; y < src.rows; y++){
 		Vec3b* ptr = filtered_img.ptr<Vec3b>(y);
-		for (x = 0; x < width; x++){
+		for (x = 0; x < src.cols; x++){
 			Vec3b c = ptr[x];
 			if (c[2] > 20 && c[1] > 20 && c[0] > 20){
 				//		rectangle(filtered_img, Point{ x, y }, Point{ x, y }, Scalar(255, 0, 255));
@@ -849,11 +761,17 @@ void resize_and_preproc(Mat& src, bool first=false){
 			}
 		}
 	}
-	resized_width = width_max - width_min;
-	resized_height = height_max - height_min;
-	resized_wmean = (width_max + width_min) / 2;
-	resized_hmean = (height_max + height_min) / 2;
-	Mat resized_img(src, Rect(width_min, height_min, resized_width, resized_height));
+
+	*height_min_ptr = height_min;
+	*height_max_ptr = height_max;
+	*width_min_ptr = width_min;
+	*width_max_ptr = width_max;
+	*resized_width_ptr = width_max - width_min;
+	*resized_height_ptr = height_max - height_min;
+	*resized_wmean_ptr = (width_max + width_min) / 2;
+	*resized_hmean_ptr = (height_max + height_min) / 2;
+
+	Mat resized_img(src, Rect(width_min, height_min, *resized_width_ptr, *resized_height_ptr));
 	/***************ƒNƒ‰ƒXƒ^ƒŠƒ“ƒO—p‚Ìƒf[ƒ^\’z****************/
 	if (first){
 		XYRGB p;
@@ -864,7 +782,7 @@ void resize_and_preproc(Mat& src, bool first=false){
 				if (c[2] > 30 && c[1] > 30 && c[0] > 30){
 					//change_label_feature_space(y, c[2], c[1], c[0], true);
 					//cout << height_normalize(y) << endl;
-					p = { width_normalize(x), height_normalize(y) , c[2], c[1], c[0] };
+					p = { width_normalize(x, width_min, *resized_wmean_ptr), height_normalize(y, height_min, *resized_hmean_ptr) , c[2], c[1], c[0] };
 					data.push_back(p);
 				}
 			}
@@ -890,208 +808,7 @@ bool check_distinct_points(XYRGB *kCenter, XYRGB data, int count){
 		}
 	}
 }
-/*
-void k_means_clustering(Mat& img){
-	const int k = 12;   //ƒ‰ƒxƒ‹‚Ì”
-	const int nStart = 1;
-	double minWcv = 10000000000;     //Å¬‚ÌƒNƒ‰ƒXƒ^“à•ªU˜a
-	XYRGB bestCenter[k];
-	XYRGB p, q;
-	unordered_map<vector<int>, int, HashVI> *all_labels;
-	all_labels = new unordered_map<vector<int>, int, HashVI>[nStart];
-	for (int h = 0; h < nStart; h++){
-		if (data.empty()){
-			cout << "data‚ª‚È‚¢‚æ" << endl;
-		}
-		unordered_map<vector<int>, int, HashVI> temp_labels;
-		all_labels[h] = temp_labels;
-		//vector<YRGB> kCenter;
-		XYRGB kCenter[k];
-		XYRGB total[k];
-		double clsCount[k];
-		double dis, disMin;
-		int randIndex;
-		bool changed = false;
-		int nData = data.size();
-		XYRGB dp;
-		int dx, cx, dy, cy, minIndex;
-		int dr, dg, db, cr, cg, cb;
-		vector<int> xyrgb; //clsLabel‚Ì‚½‚ß‚â‚Ş‚ğ“¾‚¸i‚Ù‚ñ‚Æ‚Ístruct‚Å‚â‚è‚½‚¢j
 
-		//ƒNƒ‰ƒXƒ^ƒZƒ“ƒ^‚ª•Ï‰»‚µ‚È‚­‚È‚é‚Ü‚ÅŒJ‚è•Ô‚·
-		int iterCount = 0;
-		//‰ŠúƒNƒ‰ƒXƒ^‚Ì‘I‘ğ(kmeans++)
-		for (int i = 0; i < LABEL_KIND_NUM; i++){
-			kCenter[i] = joint_position_models[i];
-		}
-		do{
-			//ƒNƒ‰ƒXƒ^Š„‚è“–‚Ä
-			changed = false;
-			for (int i = 0; i < k; i++){
-				clsCount[i] = 0;
-				total[i].x = 0;
-				total[i].y = 0;
-				total[i].r = 0;
-				total[i].g = 0;
-				total[i].b = 0;
-			}
-			all_labels[h].clear();
-			//Šeƒf[ƒ^“_‚ÆƒNƒ‰ƒXƒ^ƒZƒ“ƒ^ŠÔ‚Æ‚Ì‹——£‚ğŒvZ
-			for (int i = 0; i < nData; i++){
-				xyrgb.clear();
-				dp = data[i];
-				dx = dp.x;
-				dy = dp.y;
-				dr = dp.r;
-				dg = dp.g;
-				db = dp.b;
-				disMin = 10000000000;
-				for (int j = 0; j < k; j++){
-					cx = kCenter[j].x;
-					cy = kCenter[j].y;
-					cr = kCenter[j].r;
-					cg = kCenter[j].g;
-					cb = kCenter[j].b;
-					dis = sqrt((dx - cx)*(dx - cx) + (dy - cy)*(dy - cy) + (dr - cr)*(dr - cr) + (dg - cg)*(dg - cg) + (db - cb)*(db - cb));
-					//		cout << dis << endl;
-					if (dis != 0){
-						if (dis < disMin){
-							disMin = dis;
-							minIndex = j + 1;
-						}
-					}
-					else{
-						minIndex = j + 1;
-						break;
-					}
-				}
-				xyrgb = { dx, dy, dr, dg, db };
-				all_labels[h].insert(make_pair(xyrgb, minIndex));
-				total[minIndex - 1].x += dx;
-				total[minIndex - 1].y += dy;
-				total[minIndex - 1].r += dr;
-				total[minIndex - 1].g += dg;
-				total[minIndex - 1].b += db;
-				clsCount[minIndex - 1]++;
-			}
-			//V‚µ‚¢ƒNƒ‰ƒXƒ^ƒZƒ“ƒ^‚ğ“¾‚é
-			//ƒNƒ‰ƒXƒ^“à‚Ì•½‹Ï’l‚ÌZo
-			int countMatch = 0;
-			XYRGB mean[k];
-			for (int i = 0; i < k; i++){
-				mean[i].x = total[i].x / clsCount[i];
-				mean[i].y = total[i].y / clsCount[i];
-				mean[i].r = total[i].r / clsCount[i];
-				mean[i].g = total[i].g / clsCount[i];
-				mean[i].b = total[i].b / clsCount[i];
-				if (mean[i].x == kCenter[i].x && mean[i].y == kCenter[i].y && mean[i].r == kCenter[i].r
-					&& mean[i].g == kCenter[i].g && mean[i].b == kCenter[i].b){
-					countMatch++;
-				}
-				kCenter[i] = mean[i];
-			}
-			//V‚µ‚¢ƒNƒ‰ƒXƒ^ƒZƒ“ƒ^‚ª“¯‚¶“_‚Å‚ ‚é‚©‚Ç‚¤‚©‚Ì”»’è
-			if (countMatch == k){
-				changed = false;
-			}
-			else{
-				changed = true;
-			}
-			iterCount++;
-		} while (changed);
-
-		//ƒNƒ‰ƒXƒ^“à•ªU˜a‚ÌŒvZ
-		int temp_label;
-		int var = 0;
-		vector<int> tp;
-		for (int g = 0; g < nData; g++){
-			p = data[g];
-			tp = { p.x, p.y, p.r, p.g, p.b };
-			temp_label = all_labels[h].at(tp);
-			q = kCenter[temp_label];
-			double v_x = (p.x - q.x)*(p.x - q.x);
-			double v_y = (p.y - q.y)*(p.y - q.y);
-			double v_r = (p.r - q.r)*(p.r - q.r);
-			double v_g = (p.g - q.g)*(p.g - q.g);
-			double v_b = (p.b - q.b)*(p.b - q.b);
-			var += round(sqrt(v_x + v_y + v_r + v_g + v_b))/1000000000000;
-		}
-		double wcv = var / nData;
-		if (wcv < minWcv){
-			minWcv = wcv;
-			for (int l = 0; l < k; l++){
-				bestCenter[l] = kCenter[l];
-			}
-			labels = &(all_labels[h]);
-		}
-		else{
-			all_labels[h].clear();
-		}
-	}
-	//ƒƒ‚ƒŠ‚Ì‰ğ•ú
-	data.clear();
-	data.shrink_to_fit();
-}
-*/
-/*
-//ƒNƒ‰ƒXƒ^“à‚Ì•ª•z‚ğŠm”F
-void output_histgram(){
-	ofstream clsData[LABEL_KIND_NUM];
-	ostringstream oss;
-	for (int i = 0; i < LABEL_KIND_NUM; i++){
-		oss << "cls" << i << ".dat";
-		string str = oss.str();
-		clsData[i].open(str);
-		oss.str("");
-	}
-	int label;
-	vector<int> key;
-	for (auto itr = labels->begin(); itr != labels->end(); ++itr){
-		label = itr->second;
-		key = itr->first;
-		clsData[label-1] << key[2] << " " << key[3] << " " << key[4] << endl;
-	}
-	for (int i = 0; i < LABEL_KIND_NUM; i++){
-		clsData[i].close();
-	}
-}
-*/
-/*
-//ƒNƒ‰ƒXƒ^ƒŠƒ“ƒO‚ª‚Å‚«‚Ä‚¢‚é‚©Šm”F—p
-void check_each_cluster(){
-	const int x_size = 50;
-	const int y_size = 50;
-	vector<XYRGB> check_cluster[LABEL_KIND_NUM];
-	Mat dst_imgs[LABEL_KIND_NUM];
-	int indexes[LABEL_KIND_NUM] = {};
-	for (int i = 0; i < LABEL_KIND_NUM; i++){
-		vector<XYRGB> cls;
-		check_cluster[i] = cls;
-		Mat img(Size(x_size, y_size), CV_8UC3);
-		dst_imgs[i] = img;
-	}
-	for (auto itr = labels->begin(); itr != labels->end(); ++itr){
-		int cluster = itr->second;
-		vector<int> key = itr->first;
-		XYRGB new_key = { key[0], key[1], key[2], key[3], key[4] };
-		check_cluster[cluster-1].push_back(new_key);
-		rectangle(dst_imgs[cluster-1], Point((indexes[cluster-1] % x_size)*2, (indexes[cluster-1] / x_size)*2), Point((indexes[cluster-1] % x_size)*2+1, (indexes[cluster-1] / x_size+5)*2+1), Scalar(key[4], key[3], key[2]));
-		indexes[cluster-1]++;
-	}
-	try{
-		ostringstream oss;
-		for (int i = 0; i < LABEL_KIND_NUM; i++){
-			oss << "cluster" << i << ".png";
-			string file_names = oss.str();
-			imwrite(file_names, dst_imgs[i]);
-			oss.str("");
-		}
-	}
-	catch (runtime_error& ex){
-		printf("failure");
-	}
-}
-*/
 int _tmain(int argc, _TCHAR* argv[])
 {
 	init_config();
@@ -1130,19 +847,21 @@ int _tmain(int argc, _TCHAR* argv[])
 		count++;
 		Mat& frame = dst_img;
 		video >> frame;
-		width = frame.cols;
-		height = frame.rows;
 		if (frame.empty() || video.get(CV_CAP_PROP_POS_AVI_RATIO) == 1){
 			break;
 		}
+		int width = frame.cols;
+		int height = frame.rows;
+		int height_min, height_max, width_min, width_max; //lŠÔ‚Ì—Ìˆæ‚Ìx,y‚ÌÅ¬’l‚ÆÅ‘å’l
+		int	resized_width, resized_height, resized_hmean, resized_wmean; //ƒgƒŠƒ~ƒ“ƒO‚µ‚½‰æ‘œ‚Ì•A‚‚³A•½‹Ï’l
 		//‘ÎÛ‚ÌƒtƒŒ[ƒ€‚Ü‚Å‚ÍƒXƒLƒbƒv
 		if (count < use_start_frame){
 			continue;
 		}
 		else if (count == use_start_frame){
-			resize_and_preproc(frame);
-			labeling(frame);
-			output_labels();
+			resize_and_preproc(frame, &height_min, &height_max, &width_min, &width_max, &resized_width, &resized_height, &resized_hmean, &resized_wmean);
+			labeling(frame, height_min, height_max, width_min, width_max);
+		//	output_labels(width, height);
 			for (int y = 0; y < height; y++){
 				Vec3b* ptr = frame.ptr<Vec3b>(y);
 				for (int x = 0; x < width; x++){
@@ -1153,9 +872,8 @@ int _tmain(int argc, _TCHAR* argv[])
 					}
 				}
 			}
-/*			resize_and_preproc(frame, true);
-            k_means_clustering(frame);
-			check_each_cluster();
+			break;
+/*			
 			output_histgram();
 			init_label_class(frame, parts);*/
 		}
@@ -1166,7 +884,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		else{
 			break;
 			if (MODE == 1){
-				resize_and_preproc(frame);
+				resize_and_preproc(frame, &height_min, &height_max, &width_min, &width_max, &resized_width, &resized_height, &resized_hmean, &resized_wmean);
 				change_prev_and_current(parts);
 //				search_points_from_image(frame, parts);
 				set_cog_each_label(parts);
@@ -1174,64 +892,6 @@ int _tmain(int argc, _TCHAR* argv[])
 			else{
 				break;
 			}
-		}
-		/*
-		for (int y = 0; y < height; y++){
-			Vec3b* ptr = frame.ptr<Vec3b>(y);
-			for (int x = 0; x < width; x++){
-				vector<int> point{ x, y };
-				Vec3b v = ptr[x];
-				if (left_knee_color_space[0] < v[2] && left_knee_color_space[1] > v[2] &&
-					left_knee_color_space[2] < v[1] && left_knee_color_space[3] > v[1] &&
-					left_knee_color_space[4] < v[0] && left_knee_color_space[5] > v[0]){
-					ptr[x] = Vec3b(255, 0, 0);
-				}
-			}
-		}
-        */
-		if (MODE == 1){
-	/*		vector<Point> pp = right_knee.get_current_points();
-			for (auto itr = pp.begin(); itr != pp.end(); ++itr){
-				Point p = *itr;
-				rectangle(dst_img, p, p, Scalar(0, 0, 255));
-			}*/
-	//		rectangle(dst_img, Point{ left_knee.get_cog()[count - use_start_frame].x - (AROUND_PIXEL_X / 2), left_knee.get_cog()[count - use_start_frame].y - (AROUND_PIXEL_Y / 2) },
-	//			Point{ left_knee.get_cog()[count - use_start_frame].x + (AROUND_PIXEL_X / 2), left_knee.get_cog()[count - use_start_frame].y + (AROUND_PIXEL_Y / 2) }, Scalar(0, 0, 255));
-	/*		circle(dst_img, ankle.get_cog()[count - use_start_frame], 5, Scalar(0, 0, 255), -1);
-			circle(dst_img, left_knee.get_cog()[count - use_start_frame], 5, Scalar(0, 255, 0), -1);
-			circle(dst_img, right_knee.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 0), -1);
-			circle(dst_img, left_heel.get_cog()[count - use_start_frame], 5, Scalar(0, 255, 255), -1);
-			circle(dst_img, right_heel.get_cog()[count - use_start_frame], 5, Scalar(255, 0, 255), -1);
-			circle(dst_img, head.get_cog()[count - use_start_frame], 5, Scalar(255, 255, 0), -1);*/
-			for (int i = 0; i < LABEL_KIND_NUM; i++){
-			//	cout << parts[i]->get_cog()[count - use_start_frame].x << ", " << parts[i]->get_cog()[count - use_start_frame].y << endl;
-			//	circle(dst_img, parts[i]->get_cog()[count - use_start_frame], 5, get_label_color(), -1);
-			}
-			/*
-			Scalar test_colors[LABEL_KIND_NUM] = { { 0, 0, 255 }, { 0, 255, 0 }, { 255, 0, 0}, { 0, 255, 255 },
-			{ 255, 255, 0 }, { 255, 0, 255 }, { 0, 0, 125 }, { 0, 125, 0 } ,
-			{ 125, 0, 0 }, { 0, 125, 125 }, { 125, 0, 125 }, { 125, 125, 0 } };
-
-			vector<vector<Point>> test_points;
-			for (int m = 0; m < LABEL_KIND_NUM; m++){
-				vector<Point> test_point = parts[m]->get_current_points();
-				test_points.push_back(test_point);
-			}
-			int n = 0;
-			for (auto itr = test_points.begin(); itr != test_points.end(); ++itr){
-				vector<Point> test_point = *itr;
-				for (auto itr2 = test_point.begin(); itr2 != test_point.end(); ++itr2){
-					Point p = *itr2;
-					rectangle(dst_img, p, p, test_colors[n]);
-				}
-				n++;
-			}*/
-			for (int i = 0; i < LABEL_KIND_NUM; i++){
-				Point model = joint_position_models[i];
-				cout << inv_width_normalize(model.x) << "," << inv_height_normalize(model.y) << endl;
-				circle(dst_img, Point{ inv_width_normalize(model.x), inv_height_normalize(model.y) }, 5, Scalar(255, 255, 255), -1);
-			}
-		//	rectangle(dst_img, Point{ width_min, height_min }, Point{ width_max, height_max }, Scalar(255, 0, 0));
 		}
 		try{
 			imwrite(filename[count - use_start_frame], dst_img);
