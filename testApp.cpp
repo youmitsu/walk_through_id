@@ -165,11 +165,15 @@ private:
 	vector<Point> prev_points;
 	vector<Point> current_points;
 	Point prev_back_up;
+	int minX;
+	int minY;
 public:
 	Label(){}
-	Label(int label_id, string name, vector<Point> current_points, Point first_cog)
-		: label_id(label_id), name(name), current_points(current_points)
+	Label(vector<Point> current_points, Point first_cog, int minX, int minY)
+		: current_points(current_points), minX(minX), minY(minY)
 	{
+		label_id = 0;
+		name = "";
 		vector<Point> pp;
 		prev_points = pp;
 		cog.push_back(first_cog);
@@ -180,12 +184,15 @@ public:
 	vector<Point> get_prev_points(){ return prev_points; }
 	vector<Point> get_cog(){ return cog; }
 	Point get_prev_back_up(){ return prev_back_up; }
+	int get_minY(){ return minY; };
+	int get_minX(){ return minX; };
 	void set_prev_back_up();
 	void set_current_points(Point p);
 	void set_cog(Point p);
 	void calc_and_set_cog();
 	void change_ptr();
 	void clear_prev_points();
+	void set_joint_mean(int id, string name);
 };
 
 void Label::set_current_points(Point p){
@@ -237,6 +244,11 @@ void Label::set_prev_back_up(){
 void Label::clear_prev_points(){
 	set_prev_back_up();
 	prev_points.clear();
+}
+
+void Label::set_joint_mean(int id, string joint_name){
+	label_id = id;
+	name = joint_name;
 }
 
 unordered_map<vector<int>, int, HashVI> labels;  //key：座標、value：ラベル番号
@@ -411,21 +423,7 @@ int reference_label(int input_label){
 }
 
 //ラベル探索の際に使用
-int labels_minY[LABEL_KIND_NUM];
-int labels_minX[LABEL_KIND_NUM];
 unordered_map<int, int> index_of_labels;
-
-void check_minY(int label, int y){
-	if (y < labels_minY[label]){
-		labels_minY[label] = y;
-	}
-}
-
-void check_minX(int label, int x){
-	if (x < labels_minX[label]){
-		labels_minX[label] = x;
-	}
-}
 
 //int data_size_per_cls[LABEL_KIND_NUM] = {};
 //ラベリング本体
@@ -443,8 +441,6 @@ void labeling(Mat& frame, int height_min, int height_max, int width_min, int wid
 	//ラベリングのためのルックアップテーブルを用意
 	for (int i = 0; i < LOOKUP_SIZE; i++){
 		lookup_table[i] = i;
-		labels_minY[i] = 1000000000;
-		labels_minX[i] = 1000000000;
 	}
 
 	//全画素ラベル初期化
@@ -479,13 +475,6 @@ void labeling(Mat& frame, int height_min, int height_max, int width_min, int wid
 		index_of_labels[*itr] = index;
 		index++;
 	}
-	for (auto itr = labels.begin(); itr != labels.end(); ++itr){
-		vector<int> point = itr->first;
-		int label = itr->second;
-		check_minY(index_of_labels[label], point[1]);
-		check_minX(index_of_labels[label], point[0]);
-	}
-
 
 	/********雑音除去のコード(時間あるとき続き実装)********/
 	/*
@@ -560,23 +549,6 @@ void import_labels(){
 	}
 }
 
-//最大値と最小値を求める
-void change_min_and_max_value(int x, int y, int *max_x, int *max_y,
-	int *min_x, int *min_y){
-	if (x > *max_x){
-		*max_x = x;
-	}
-	else if (x < *min_x){
-		*min_x = x;
-	}
-	if (y > *max_y){
-		*max_y = y;
-	}
-	else if (y < *min_y){
-		*min_y = y;
-	}
-}
-
 int width_normalize(int x, int width_min, int resized_wmean ){
 	return (int)(((double)x - (double)width_min) / (double)resized_wmean * 1000);
 }
@@ -595,21 +567,81 @@ int inv_height_normalize(int normal_height, int resized_hmean, int height_min){
 	return (int)(((double)resized_hmean*(double)normal_height / 1000.0) + (double)height_min);
 }
 
-void explore_withX(int expNum){
+//決定する順にIDを定義
+int id_orderby_dst[LABEL_KIND_NUM] = { HEAD, RIGHT_SHOULDER, NECK, LEFT_SHOULDER, RIGHT_ELBOW, LEFT_ELBOW,
+RIGHT_WRIST, ANKLE, LEFT_WRIST, LEFT_KNEE, RIGHT_KNEE, LEFT_HEEL, RIGHT_HEEL };
+//決定する順に名前を定義
+string name_orderby_dst[LABEL_KIND_NUM] = { "頭", "右肩", "首", "左肩", "右肘", "左肘",
+"右手首", "腰", "左手首", "左膝", "右膝", "左足首", "右足首" };
 
-}
+void explore_withX(Label* parts[], int* sorted_labels){
+	const int phase_size = 6;
+	const int phase_label[phase_size] = { 1, 3, 2, 3, 2, 2 };
 
-void explore_withY(int expNum){
-	while (true){
+	int iter_count = 0;
+	while (iter_count < LABEL_KIND_NUM){
+		for (int j = 0; j < phase_size; j++){
+			vector<pair<int, int>> minX_parts_pair;
+			vector<pair<int, int>>::iterator it;
+			int size = phase_label[j];
+			for (int k = 0; k < size; k++){
+				int input_X = parts[sorted_labels[iter_count]]->get_minX();
+				minX_parts_pair.push_back(pair<int, int>(input_X, sorted_labels[iter_count]));
+				iter_count++;
+			}
+			iter_count -= size;
+			sort(minX_parts_pair.begin(), minX_parts_pair.end());
+			for (auto itr = minX_parts_pair.begin(); itr != minX_parts_pair.end(); ++itr){
+				parts[itr->second]->set_joint_mean(id_orderby_dst[iter_count], name_orderby_dst[iter_count]);
+			}
+		}
 	}
 }
 
-void assign_joint_to_label(){
-	const int phase_size = 5;
-	const int phase_label[phase_size] = { 1, 3, 5, 2, 2 };
-	for (int i = 0; i < phase_size; i++){
-		explore_withX(phase_label[i]);
-		explore_withY(phase_label[i]);
+void explore_withY(Label* parts[], int* sorted_labels){
+	int min = 1000000000;
+	vector<pair<int, int>> minY_parts_pair;
+	vector<pair<int, int>>::iterator it;
+	for (int i = 0; i < LABEL_KIND_NUM; i++){
+		int input_minY = parts[i]->get_minY();
+		minY_parts_pair.push_back(pair<int, int> (input_minY, i));
+	}	
+	sort(minY_parts_pair.begin(), minY_parts_pair.end());
+	int index = 0;
+	for (auto itr = minY_parts_pair.begin(); itr != minY_parts_pair.end(); ++itr){
+		pair<int, int> pair = *itr;
+		sorted_labels[index] = pair.second;
+	}
+}
+
+//ラベルクラスにIDを付与
+void assign_joint_to_label(Label* parts[]){
+	int sorted_labels[LABEL_KIND_NUM];
+	explore_withY(parts, sorted_labels);
+	explore_withX(parts, sorted_labels);
+}
+
+void check_maxY(int* labels_maxY, int label, int y){
+	if (y > labels_maxY[label]){
+		labels_maxY[label] = y;
+	}
+}
+
+void check_minY(int* labels_minY, int label, int y){
+	if (y < labels_minY[label]){
+		labels_minY[label] = y;
+	}
+}
+
+void check_maxX(int* labels_maxX, int label, int x){
+	if (x > labels_maxX[label]){
+		labels_maxX[label] = x;
+	}
+}
+
+void check_minX(int* labels_minX, int label, int x){
+	if (x < labels_minX[label]){
+		labels_minX[label] = x;
 	}
 }
 
@@ -618,10 +650,18 @@ void init_label_class(Mat& frame, Label* parts[]){
 	int height = frame.rows;
 	int width = frame.cols;
 	//ラベルごとの最大値の{ankle[x],ankle[y],left_knee[x],left_knee[y],x,y,...,x,y}
-	int max_points[LABEL_KIND_NUM*2] = {}; 
+//	int max_points[LABEL_KIND_NUM*2] = {}; 
 	//ラベルごとの最小値の{ankle[x],ankle[y],left_knee[x],left_knee[y],x,y,...,x,y}
-	int min_points[LABEL_KIND_NUM*2];
-	for (int i = 0; i < LABEL_KIND_NUM*2; i++){ min_points[i] = 100000000; }
+//	int min_points[LABEL_KIND_NUM*2];
+//	for (int i = 0; i < LABEL_KIND_NUM*2; i++){ min_points[i] = 100000000; }
+	int labels_minY[LABEL_KIND_NUM];
+	int labels_minX[LABEL_KIND_NUM];
+	int labels_maxY[LABEL_KIND_NUM] = {};
+	int labels_maxX[LABEL_KIND_NUM] = {};
+	for (int i = 0; i < LABEL_KIND_NUM; i++){
+		labels_minY[i] = 10000000000;
+		labels_minX[i] = 10000000000;
+	}
 
 	//ラベルごとの座標を保持するvectorを定義
 	vector<Point> parts_points[LABEL_KIND_NUM];
@@ -635,31 +675,40 @@ void init_label_class(Mat& frame, Label* parts[]){
 	uchar r, g, b;
 	Point p;
 	Vec3b val;
-	vector<int> xyrgb;
+	vector<int> point;
 	for (auto itr = labels.begin(); itr != labels.end(); ++itr){
-		xyrgb = itr->first;
-		x = xyrgb[0];
-		y = xyrgb[1];
+		point = itr->first;
+		x = point[0];
+		y = point[1];
 		p = Point{ x, y };
 		label = itr->second;
-		parts_points[label - 1].push_back(p);
-		change_min_and_max_value(x, y, &max_points[(label - 1) * 2], &max_points[(label - 1) * 2 + 1], &min_points[(label - 1) * 2], &min_points[(label - 1) * 2 + 1]);
+		if (label == 0) continue;
+		
+		//モデル当てはめの際に使用,各ラベルごとのx,yの最小値を計算しておく
+		check_minY(labels_minY, index_of_labels[label], p.y);
+		check_minX(labels_minX, index_of_labels[label], p.x);
+		check_minX(labels_maxY, index_of_labels[label], p.x);
+		check_minX(labels_maxX, index_of_labels[label], p.x);
+
+		parts_points[index_of_labels[label]-1].push_back(p);
 	}
 	
     //それぞれのラベルにおける重心を求める
 	Point cogs[LABEL_KIND_NUM];
 	int cog_x, cog_y;
 	for (int i = 0; i < LABEL_KIND_NUM; i++){
-		cog_x = (max_points[i*2] + min_points[i*2]) / 2;
-	    cog_y = (max_points[i*2+1] + min_points[i*2+1]) / 2;
+		cog_x = (labels_maxX[i] + labels_minX[i]) / 2;
+	    cog_y = (labels_maxY[i] + labels_minY[i]) / 2;
 		Point cog_point{ cog_x, cog_y };
 		cogs[i] = cog_point;
 	}
 
 	//全ラベルのLabelクラスの初期化
 	for (int i = 0; i < LABEL_KIND_NUM; i++){
-		*(parts[i]) = { i, joint_names[i], parts_points[i], cogs[i] };
+		*(parts[i]) = { parts_points[i], cogs[i], labels_minX[i], labels_minY[i] };
 	}
+
+	assign_joint_to_label(parts);
 }
 
 //全ラベルのprev_pointsとcurrent_pointsを入れ替え,current_pointsをクリアする
@@ -861,6 +910,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		else if (count == use_start_frame){
 			resize_and_preproc(frame, &height_min, &height_max, &width_min, &width_max, &resized_width, &resized_height, &resized_hmean, &resized_wmean);
 			labeling(frame, height_min, height_max, width_min, width_max);
+			init_label_class(frame, parts);
 		//	output_labels(width, height);
 			for (int y = 0; y < height; y++){
 				Vec3b* ptr = frame.ptr<Vec3b>(y);
@@ -873,9 +923,6 @@ int _tmain(int argc, _TCHAR* argv[])
 				}
 			}
 			break;
-/*			
-			output_histgram();
-			init_label_class(frame, parts);*/
 		}
 		else if(count >= use_end_frame){
 			//対象となるフレームが終わったらループを抜ける
