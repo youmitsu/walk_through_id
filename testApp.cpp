@@ -23,9 +23,12 @@
 #define COLOR_DECIDE_LENGTH 9                            //色空間を定義するのに必要な要素数 ex){rs, re, gs, ge, bs, be}の配列
 #define MODE_KIND 3
 #define FEATURE_KIND 2
+#define EXTRA 10
+#define PARTS_LENGTH LABEL_KIND_NUM+EXTRA
+#define LABEL_SIZE_THRESH 20
 
 /*******「誰の」「何の処理か」「特徴量」を設定********/
-#define ID 3                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
+#define ID 1                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
 #define MODE 1                                           //0:ラベリングモード 1:追跡モード 2:再生モード
 #define FEATURE 0                                        //0:股の角度、1:膝の角度
 #define HIST 1                                           //ヒストグラム出力
@@ -55,8 +58,6 @@ enum JOINT{
 	LEFT_HEEL = 12,
 	RIGHT_HEEL = 13
 };
-
-string joint_names[LABEL_KIND_NUM] = {"頭", "左", "a", "b", "c", "d", "e", "f", "g", "h", "k", "l"};
 
 /************グローバル変数群***********/
 string video_url;                                            //使用する動画のURL
@@ -167,10 +168,11 @@ private:
 	Point prev_back_up;
 	int minX;
 	int minY;
+	bool is_parts;
 public:
 	Label(){}
 	Label(vector<Point> current_points, Point first_cog, int minX, int minY)
-		: current_points(current_points), minX(minX), minY(minY)
+		: current_points(current_points), minX(minX), minY(minY), is_parts(false)
 	{
 		vector<Point> pp;
 		prev_points = pp;
@@ -179,6 +181,7 @@ public:
 	int get_id(){ return label_id; }
 	string get_name() { return name; }
 	vector<Point> get_current_points(){ return current_points; }
+	int current_size(){ return current_points.size(); }
 	vector<Point> get_prev_points(){ return prev_points; }
 	vector<Point> get_cog(){ return cog; }
 	Point get_prev_back_up(){ return prev_back_up; }
@@ -191,6 +194,8 @@ public:
 	void change_ptr();
 	void clear_prev_points();
 	void set_joint_mean(int id, string name);
+	void change_is_parts(){ is_parts = true; }
+	bool get_is_parts(){ return is_parts; }
 };
 
 void Label::set_current_points(Point p){
@@ -433,7 +438,6 @@ void labeling(Mat& frame, int height_min, int height_max, int width_min, int wid
 	imwrite("thre_image.png", thre_img);
 	const int width = thre_img.cols;
 	const int height = thre_img.rows;
-	const int label_size_thresh = 30;
 	int latest_label_num = 0;                                    //もっとも新しいラベル
 
 	//ラベリングのためのルックアップテーブルを用意
@@ -482,19 +486,30 @@ void labeling(Mat& frame, int height_min, int height_max, int width_min, int wid
 		data_size_cls[label] = 0;
 	}
 	vector<int> point;
-	int label;
+	int label, size;
 	//面積が明らかに少ないラベル(雑音)の除去
 	for (auto itr = labels.begin(); itr != labels.end(); ++itr){
 		label = itr->second;
+		if (label == 23){ cout << "true" << endl; }
 		data_size_cls[label]++;
 	}
+	vector<int> noise_labels;
 	for (auto itr = data_size_cls.begin(); itr != data_size_cls.end(); ++itr){
-		int size = itr->second;
+		size = itr->second;
 		if (size < label_size_thresh){
-			//閾値を満たさないラベルがあればlabelsから削除(めんどい)
+			noise_labels.push_back(itr->first);
 		}
 	}
-	*/
+	if (noise_labels.size() != 0){
+		for (auto itr = labels.begin(); itr != labels.end(); ++itr){
+			label = itr->second;
+			auto itr2 = find(noise_labels.begin(), noise_labels.end(), label);
+			if (itr2 != noise_labels.end()){
+				//見つけたとき。ノイズだったとき。
+				labels[itr->first] = 0;
+			}
+		}
+	}*/
 	/******************************************************/
 
 }
@@ -572,84 +587,90 @@ RIGHT_WRIST, ANKLE, LEFT_WRIST, LEFT_KNEE, RIGHT_KNEE, LEFT_HEEL, RIGHT_HEEL };
 string name_orderby_dst[LABEL_KIND_NUM] = { "頭", "右肩", "首", "左肩", "右肘", "左肘",
 "右手首", "腰", "左手首", "左膝", "右膝", "左足首", "右足首" };
 
-void explore_withX(Label* parts, int* sorted_labels){
+void explore_withX(Label* parts[], vector<int>* sorted_labels){
 	const int phase_size = 6;
 	const int phase_label[phase_size] = { 1, 3, 2, 3, 2, 2 };
 
 	int iter_count = 0;
-	while (iter_count < LABEL_KIND_NUM){
-		for (int j = 0; j < phase_size; j++){
-			vector<pair<int, int>> minX_parts_pair;
-			vector<pair<int, int>>::iterator it;
-			int size = phase_label[j];
-			for (int k = 0; k < size; k++){
-				int input_X = parts[sorted_labels[iter_count]].get_minX();
-				minX_parts_pair.push_back(pair<int, int>(input_X, sorted_labels[iter_count]));
+	for (int j = 0; j < phase_size; j++){
+		vector<pair<int, int>> minX_parts_pair;
+		int size = phase_label[j];
+		for (int k = 0; k < size; k++){
+			if (iter_count < sorted_labels->size()){
+				int input_X = parts[sorted_labels->at(iter_count)]->get_minX();
+				minX_parts_pair.push_back(pair<int, int>(input_X, sorted_labels->at(iter_count)));
+				iter_count++;
+			}else{
+				break;
+			}
+		}
+		iter_count -= size;
+		sort(minX_parts_pair.begin(), minX_parts_pair.end());
+		for (auto itr = minX_parts_pair.begin(); itr != minX_parts_pair.end(); ++itr){
+			if (iter_count < sorted_labels->size()){
+				parts[itr->second]->set_joint_mean(id_orderby_dst[iter_count], name_orderby_dst[iter_count]);
+				parts[itr->second]->change_is_parts();
+				cout << parts[itr->second]->get_id() << endl;
 				iter_count++;
 			}
-			iter_count -= size;
-			sort(minX_parts_pair.begin(), minX_parts_pair.end());
-			for (auto itr = minX_parts_pair.begin(); itr != minX_parts_pair.end(); ++itr){
-				parts[itr->second].set_joint_mean(id_orderby_dst[iter_count], name_orderby_dst[iter_count]);
-				iter_count++;
+			else{
+				break;
 			}
 		}
 	}
 }
 
-void explore_withY(Label* parts, int* sorted_labels){
-	int min = 1000000000;
+void explore_withY(Label* parts[], vector<int>* sorted_labels){
 	vector<pair<int, int>> minY_parts_pair;
-	vector<pair<int, int>>::iterator it;
-	for (int i = 0; i < LABEL_KIND_NUM; i++){
-		int input_minY = parts[i].get_minY();
-		minY_parts_pair.push_back(pair<int, int> (input_minY, i));
+	for (int i = 0; i < PARTS_LENGTH; i++){
+		if (parts[i]->current_size() >= LABEL_SIZE_THRESH){
+			int input_minY = parts[i]->get_minY();
+			minY_parts_pair.push_back(pair<int, int>(input_minY, i));
+		}
 	}	
 	sort(minY_parts_pair.begin(), minY_parts_pair.end());
-	int index = 0;
 	for (auto itr = minY_parts_pair.begin(); itr != minY_parts_pair.end(); ++itr){
 		pair<int, int> pair = *itr;
-		sorted_labels[index] = pair.second;
-		index++;
+		sorted_labels->push_back(pair.second);
 	}
 }
 
 //ラベルクラスにIDを付与
-void assign_joint_to_label(Label* parts){
-	int sorted_labels[LABEL_KIND_NUM];
-	explore_withY(parts, sorted_labels);
-	explore_withX(parts, sorted_labels);
+void assign_joint_to_label(Label* parts[]){
+	vector<int> sorted_labels;
+	explore_withY(parts, &sorted_labels);
+	explore_withX(parts, &sorted_labels);
 }
 
 void check_maxY(vector<int>* labels_maxY, int label, int y){
-	if (y > (*labels_maxY)[label]){
-		(*labels_maxY)[label] = y;
+	if (y > (*labels_maxY)[label-1]){
+		(*labels_maxY)[label-1] = y;
 	}
 }
 
 void check_minY(vector<int>* labels_minY, int label, int y){
-	if (y < (*labels_minY)[label]){
-		(*labels_minY)[label] = y;
+	if (y < (*labels_minY)[label-1]){
+		(*labels_minY)[label-1] = y;
 	}
 }
 
 void check_maxX(vector<int>* labels_maxX, int label, int x){
-	if (x > (*labels_maxX)[label]){
-		(*labels_maxX)[label] = x;
+	if (x > (*labels_maxX)[label-1]){
+		(*labels_maxX)[label-1] = x;
 	}
 }
 
 void check_minX(vector<int>* labels_minX, int label, int x){
-	if (x < (*labels_minX)[label]){
-		(*labels_minX)[label] = x;
+	if (x < (*labels_minX)[label-1]){
+		(*labels_minX)[label-1] = x;
 	}
 }
 
 //Labelクラスを初期化(※リファクタリングしたいなー)
-void init_label_class(Mat& frame, Label* parts){
+void init_label_class(Mat& frame, Label* parts[]){
 	int height = frame.rows;
 	int width = frame.cols;
-	const int extra = 10;//とりあえずラベルの数+10個初期化
+
 	vector<int> labels_minY, labels_minX, labels_maxY, labels_maxX;
 	vector<int>* labels_minY_ptr = &labels_minY;//labelごとの最小値と最大値を計算するために使用
 	vector<int>* labels_minX_ptr = &labels_minX;
@@ -657,7 +678,7 @@ void init_label_class(Mat& frame, Label* parts){
 	vector<int>* labels_maxX_ptr = &labels_maxX;
 	vector<vector<Point>> parts_points;//ラベルごとの座標を保持するvectorを定義
 
-	for (int i = 0; i < LABEL_KIND_NUM+extra; i++){
+	for (int i = 0; i < PARTS_LENGTH; i++){
 		labels_minY_ptr->push_back(10000000000);
 		labels_minX_ptr->push_back(10000000000);
 		labels_maxY_ptr->push_back(0);
@@ -694,7 +715,7 @@ void init_label_class(Mat& frame, Label* parts){
     //それぞれのラベルにおける重心を求める
 	vector<Point> cogs;
 	int cog_x, cog_y;
-	for (int i = 0; i < LABEL_KIND_NUM+extra; i++){
+	for (int i = 0; i < PARTS_LENGTH; i++){
 		cog_x = ((*labels_maxX_ptr)[i] + (*labels_minX_ptr)[i]) / 2;
 	    cog_y = ((*labels_maxY_ptr)[i] + (*labels_minY_ptr)[i]) / 2;
 		Point cog_point{ cog_x, cog_y };
@@ -702,24 +723,26 @@ void init_label_class(Mat& frame, Label* parts){
 	}
 
 	//全ラベルのLabelクラスの初期化
-	for (int i = 0; i < LABEL_KIND_NUM; i++){
-		parts[i] = { parts_points[i], cogs[i], (*labels_minX_ptr)[i], (*labels_minY_ptr)[i] };
+	for (int i = 0; i < PARTS_LENGTH; i++){
+		*(parts[i]) = { parts_points[i], cogs[i], (*labels_minX_ptr)[i], (*labels_minY_ptr)[i] };
+		vector<Point> points = parts[i]->get_current_points();
+	//	cout << points.size() << endl;
 	}
 
 	assign_joint_to_label(parts);
 }
 
 //全ラベルのprev_pointsとcurrent_pointsを入れ替え,current_pointsをクリアする
-void change_prev_and_current(Label* parts){
+void change_prev_and_current(Label* parts[]){
 	for (int i = 0; i < LABEL_KIND_NUM; i++){
-		parts[i].clear_prev_points();
-		parts[i].change_ptr();
+		parts[i]->clear_prev_points();
+		parts[i]->change_ptr();
 	}
 }
 
-void set_cog_each_label(Label* parts){
+void set_cog_each_label(Label* parts[]){
 	for (int i = 0; i < LABEL_KIND_NUM; i++){
-		parts[i].calc_and_set_cog();
+		parts[i]->calc_and_set_cog();
 	}
 }
 
@@ -880,9 +903,18 @@ int _tmain(int argc, _TCHAR* argv[])
 	default:
 		break;
 	}
-	Label parts1, parts2, parts3, parts4, parts5, parts6, parts7, parts8, parts9, parts10, parts11, parts12;
-	Label parts[LABEL_KIND_NUM] = { parts1, parts2, parts3, parts4, parts5, parts6,
-		parts7, parts8, parts9, parts10, parts11, parts12 };
+	Label parts1, parts2, parts3, parts4, parts5, parts6, parts7, parts8, parts9, parts10,
+		parts11, parts12, parts13, parts14, parts15, parts16, parts17, parts18, parts19, parts20,
+		parts21, parts22, parts23;
+	Label* parts[PARTS_LENGTH] = { &parts1, &parts2, &parts3, &parts4, &parts5, &parts6,
+		&parts7, &parts8, &parts9, &parts10, &parts11, &parts12, &parts13, &parts14, &parts15,
+		&parts16, &parts17, &parts18, &parts19, &parts20, &parts21, &parts22, &parts23 };
+
+//	Label parts[PARTS_LENGTH];
+/*	for (int i = 0; i < PARTS_LENGTH; i++){
+		Label l;
+		parts[i] = l;
+	}*/
 	//腰、左膝、右膝、左足首、右足首のLabelインスタンスを宣言
 
 	ofstream ofs("output_angles.txt");
@@ -908,9 +940,44 @@ int _tmain(int argc, _TCHAR* argv[])
 		else if (count == use_start_frame){
 			resize_and_preproc(frame, &height_min, &height_max, &width_min, &width_max, &resized_width, &resized_height, &resized_hmean, &resized_wmean);
 			labeling(frame, height_min, height_max, width_min, width_max);
+		/*	for (int y = height_min; y < height_max; y++){
+				Vec3b* ptr = frame.ptr<Vec3b>(y);
+				for (int x = width_min; x < width_max; x++){
+					vector<int> point{ x, y };
+					int label = labels[point];
+					if (label != 0){
+						ptr[x] = label_color_list[label];
+					}
+				}
+			}*/
 			init_label_class(frame, parts);
+			Scalar test_colors[LABEL_KIND_NUM] = { { 0, 0, 255 }, { 0, 255, 0 }, { 255, 0, 0 }, { 0, 255, 255 },
+			{ 255, 255, 0 }, { 255, 0, 255 }, { 0, 0, 125 }, { 0, 125, 0 },
+			{ 125, 0, 0 }, { 0, 125, 125 }, { 125, 0, 125 }, { 125, 125, 0 } };
+			
+			vector<vector<Point>> test_points;
+			
+			for (int m = 0; m < PARTS_LENGTH; m++){
+		//		if (parts[m]->get_is_parts()){
+				if (parts[m]->get_id() == RIGHT_KNEE){
+					vector<Point> test_point = parts[m]->get_current_points();
+					test_points.push_back(test_point);
+				}
+			}
+			//特定のPartsだけみたいとき
+			//vector<Point> test_point = parts[0]->get_current_points();
+			//test_points.push_back(test_point);
+			int n = 0;
+			for (auto itr = test_points.begin(); itr != test_points.end(); ++itr){
+				vector<Point> test_point = *itr;
+				for (auto itr2 = test_point.begin(); itr2 != test_point.end(); ++itr2){
+					Point p = *itr2;
+					rectangle(dst_img, p, p, test_colors[n]);
+				}
+				n++;
+			}
 		//	output_labels(width, height);
-			for (int y = 0; y < height; y++){
+		/*	for (int y = 0; y < height; y++){
 				Vec3b* ptr = frame.ptr<Vec3b>(y);
 				for (int x = 0; x < width; x++){
 					vector<int> point{ x, y };
@@ -920,7 +987,7 @@ int _tmain(int argc, _TCHAR* argv[])
 					}
 				}
 			}
-			break;
+			break;*/
 		}
 		else if(count >= use_end_frame){
 			//対象となるフレームが終わったらループを抜ける
