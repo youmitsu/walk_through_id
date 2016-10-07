@@ -26,6 +26,7 @@
 #define EXTRA 10
 #define PARTS_LENGTH LABEL_KIND_NUM+EXTRA
 #define LABEL_SIZE_THRESH 20
+#define COLOR_KIND 4
 
 /*******「誰の」「何の処理か」「特徴量」を設定********/
 #define ID 1                                             //0:星野, 1:秀野, 2:羽田, 3:北沢
@@ -57,6 +58,13 @@ enum JOINT{
 	RIGHT_KNEE = 11,
 	LEFT_HEEL = 12,
 	RIGHT_HEEL = 13
+};
+
+enum COLOR_DATA{
+	GREEN = 1,
+	YELLOW = 2,
+	PINK = 3,
+	BLUE = 4
 };
 
 /************グローバル変数群***********/
@@ -169,10 +177,11 @@ private:
 	int minX;
 	int minY;
 	bool is_parts;
+	int color_type;
 public:
 	Label(){}
 	Label(vector<Point> current_points, Point first_cog, int minX, int minY)
-		: current_points(current_points), minX(minX), minY(minY), is_parts(false)
+		: current_points(current_points), minX(minX), minY(minY), is_parts(false), color_type(0)
 	{
 		vector<Point> pp;
 		prev_points = pp;
@@ -196,6 +205,8 @@ public:
 	void set_joint_mean(int id, string name);
 	void change_is_parts(){ is_parts = true; }
 	bool get_is_parts(){ return is_parts; }
+	int get_color_type(){ return color_type; }
+	void set_color_type(int input_type);
 };
 
 void Label::set_current_points(Point p){
@@ -252,6 +263,10 @@ void Label::clear_prev_points(){
 void Label::set_joint_mean(int id, string joint_name){
 	label_id = id;
 	name = joint_name;
+}
+
+void Label::set_color_type(int input_type){
+	color_type = input_type;
 }
 
 unordered_map<vector<int>, int, HashVI> labels;  //key：座標、value：ラベル番号
@@ -586,8 +601,51 @@ RIGHT_WRIST, ANKLE, LEFT_WRIST, LEFT_KNEE, RIGHT_KNEE, LEFT_HEEL, RIGHT_HEEL };
 //決定する順に名前を定義
 string name_orderby_dst[LABEL_KIND_NUM] = { "頭", "右肩", "首", "左肩", "右肘", "左肘",
 "右手首", "腰", "左手首", "左膝", "右膝", "左足首", "右足首" };
+//決定する順に色を定義
+int color_orderby_dst[LABEL_KIND_NUM] = { GREEN, YELLOW, PINK, BLUE, GREEN, YELLOW, PINK,
+BLUE, GREEN, YELLOW, GREEN, YELLOW, PINK };
+//indexにIDを突っ込むだけで色が返ってくる
+int connection_joint_color[LABEL_KIND_NUM] = {};
 
-void explore_withX(Label* parts[], vector<int>* sorted_labels){
+void create_feature_space(int* color_feature_space, int type, int r, int g, int b){
+	color_feature_space[r * 255 * 255 + g * 255 + b] = type;
+}
+int get_color_type(int* color_feature_space, int r, int g, int b){
+	return color_feature_space[r * 255 * 255 + g * 255 + b];
+}
+
+int search_color_from_feature_space(int* color_feature_space, Point p, Vec3b color){
+	const int mask = 9; //処理マスク初期値
+	int r = color[2];
+	int g = color[1];
+	int b = color[0];
+
+	//色特徴空間内を探索(maxk*maxk*maskの範囲)
+	//	int bin[LABEL_KIND_NUM] = {};
+	double min_dist = 1000000000.0;
+	int min_label = 0;
+	for (int tr = r - (int)(mask / 2); tr <= r + (int)(mask / 2); tr++){
+		for (int tg = g - (int)(mask / 2); tg <= g + (int)(mask / 2); tg++){
+			for (int tb = b - (int)(mask / 2); tb <= b + (int)(mask / 2); tb++){
+				if (point_validation(tr, tg, 255, 255, 3, tb, 255)){
+					continue;
+				}
+				else{
+					if (get_color_type(color_feature_space, tr, tg, tb) != 0){
+						double dist = sqrt((tr - r)*(tr - r) + (tg - g)*(tg - g) + (tb - b)*(tb - b));
+						if (dist < min_dist){
+							min_dist = dist;
+							min_label = get_color_type(color_feature_space, tr, tg, tb);
+						}
+					}
+				}
+			}
+		}
+	}
+	return min_label;
+}
+
+void explore_withX(Mat& frame, Label* parts[], vector<int>* sorted_labels, int* color_feature_space){
 	const int phase_size = 6;
 	const int phase_label[phase_size] = { 1, 3, 2, 3, 2, 2 };
 
@@ -608,9 +666,14 @@ void explore_withX(Label* parts[], vector<int>* sorted_labels){
 		sort(minX_parts_pair.begin(), minX_parts_pair.end());
 		for (auto itr = minX_parts_pair.begin(); itr != minX_parts_pair.end(); ++itr){
 			if (iter_count < sorted_labels->size()){
-				parts[itr->second]->set_joint_mean(id_orderby_dst[iter_count], name_orderby_dst[iter_count]);
-				parts[itr->second]->change_is_parts();
-				cout << parts[itr->second]->get_id() << endl;
+				Point sample_point = parts[sorted_labels->at(iter_count)]->get_cog().at(0);
+				Vec3b sample_color = frame.at<Vec3b>(sample_point);
+				int color_type = search_color_from_feature_space(color_feature_space, sample_point, sample_color);
+			//	if (color_type == color_orderby_dst[iter_count]){
+					parts[itr->second]->set_joint_mean(id_orderby_dst[iter_count], name_orderby_dst[iter_count]);
+					parts[itr->second]->change_is_parts();
+					parts[itr->second]->set_color_type(color_orderby_dst[iter_count]);
+			//	}
 				iter_count++;
 			}
 			else{
@@ -636,10 +699,10 @@ void explore_withY(Label* parts[], vector<int>* sorted_labels){
 }
 
 //ラベルクラスにIDを付与
-void assign_joint_to_label(Label* parts[]){
+void assign_joint_to_label(Mat& frame, Label* parts[], int* color_feature_space){
 	vector<int> sorted_labels;
 	explore_withY(parts, &sorted_labels);
-	explore_withX(parts, &sorted_labels);
+	explore_withX(frame, parts, &sorted_labels, color_feature_space);
 }
 
 void check_maxY(vector<int>* labels_maxY, int label, int y){
@@ -667,7 +730,7 @@ void check_minX(vector<int>* labels_minX, int label, int x){
 }
 
 //Labelクラスを初期化(※リファクタリングしたいなー)
-void init_label_class(Mat& frame, Label* parts[]){
+void init_label_class(Mat& frame, Label* parts[], int* color_feature_space){
 	int height = frame.rows;
 	int width = frame.cols;
 
@@ -726,10 +789,72 @@ void init_label_class(Mat& frame, Label* parts[]){
 	for (int i = 0; i < PARTS_LENGTH; i++){
 		*(parts[i]) = { parts_points[i], cogs[i], (*labels_minX_ptr)[i], (*labels_minY_ptr)[i] };
 		vector<Point> points = parts[i]->get_current_points();
-	//	cout << points.size() << endl;
 	}
 
-	assign_joint_to_label(parts);
+	//Labelに関節IDとnameを付与
+	assign_joint_to_label(frame, parts, color_feature_space);
+}
+
+//prev_pointsとcurrent_pointsで被っている点を探索し、被っていればcurrent_pointsにセットする
+void find_same_point(Label *label, Point p){
+	vector<Point> prev_points = label->get_prev_points();
+	auto itr = find(prev_points.begin(), prev_points.end(), p);
+	if (itr != prev_points.end()){
+		Point sp = *itr;
+		label->set_current_points(sp);
+	}
+}
+
+//ラベルごとにfind_same_pointを実行する
+void search_same_points(Mat& frame, Label* parts[], int height_min, int height_max, int width_min, int width_max){
+	for (int y = height_min; y < height_max; y++){
+		Vec3b* ptr = frame.ptr<Vec3b>(y);
+		for (int x = width_min; x < width_max; x++){
+			Vec3b color = ptr[x];
+			if (color[2] > 30 && color[1] > 30 && color[0] > 30){
+				Point p{ x, y };
+				for (int i = 0; i < PARTS_LENGTH; i++){
+					if(parts[i]->get_is_parts()) find_same_point(parts[i], p);
+				}
+			}
+		}
+	}
+}
+
+//周りの点を探索する
+void search_around_points_each_labels(Mat& frame, Label *label[], int* color_feature_space){
+	Point cp;
+	for (int i = 0; i < PARTS_LENGTH; i++){
+		//partsじゃないならスキップ
+		if (!label[i]->get_is_parts()){ continue; }
+		
+		vector<Point> current_points = label[i]->get_current_points();
+		vector<Point> prev_points = label[i]->get_prev_points();
+		if (current_points.size() == 0 && prev_points.size() == 0){
+			cp = label[i]->get_prev_back_up();
+		}
+		else if (current_points.size() == 0){
+			cp = prev_points[0];
+		}
+		else{
+			cp = current_points[0];
+		}
+		Vec3b current;
+		for (int y = cp.y - (AROUND_PIXEL_Y / 2); y < cp.y + (AROUND_PIXEL_Y / 2); y++){
+			Vec3b* ptr = frame.ptr<Vec3b>(y);
+			for (int x = cp.x - (AROUND_PIXEL_X / 2); x < cp.x + (AROUND_PIXEL_X / 2); x++){
+				current = ptr[x];
+				Point p{ x, y };
+				//マーカーでない点はスキップする
+				if (current[2] >= 10 && current[1] >= 10 && current[0] >= 10){
+					int min_label = search_color_from_feature_space(color_feature_space, p, current);
+					if (min_label == label[i]->get_color_type()){
+						label[i]->set_current_points(p);
+					}
+				}
+			}
+		}
+	}
 }
 
 //全ラベルのprev_pointsとcurrent_pointsを入れ替え,current_pointsをクリアする
@@ -879,6 +1004,51 @@ bool check_distinct_points(XYRGB *kCenter, XYRGB data, int count){
 	}
 }
 
+string output_color_name[COLOR_KIND] = { "green_data.dat", "yellow_data.dat", "pink_data.dat", "blue_data.dat" };
+void output_sample_color(Mat frame, Label* parts[]){
+	const int parts_index = 10;
+	const int target = BLUE;
+	Label sample_parts = *(parts[parts_index]);
+	vector<Point> points = sample_parts.get_current_points();
+	ofstream out_labels(output_color_name[target]);
+	for (auto itr = points.begin(); itr != points.end(); ++itr){
+		Point p = *itr;
+		Vec3b c = frame.at<Vec3b>(p);
+		int r = c[2];
+		int g = c[1];
+		int b = c[0];
+		out_labels << r << " " << g << " " << b << endl;
+	}
+	out_labels.close();
+}
+
+void import_color_data(int* color_feature_space){
+	for (int i = 0; i < COLOR_KIND; i++){
+		ifstream input_color_file;
+		input_color_file.open(output_color_name[i]);
+		if (input_color_file.fail()){
+			cout << "Exception: ファイルが見つかりません。" << endl;
+			cin.get();
+		}
+		string str;
+		int r, g, b, l, c;
+		vector<int> p;
+		while (getline(input_color_file, str)){
+			string tmp;
+			istringstream stream(str);
+			c = 0;
+			while (getline(stream, tmp, ',')){
+				if (c == 0){ r = stoi(tmp); }
+				else if (c == 1){ g = stoi(tmp); }
+				else{ b = stoi(tmp); }
+				c++;
+			}
+			create_feature_space(color_feature_space, i+1, r, g, b);
+		}
+		input_color_file.close();
+	}
+}
+
 int _tmain(int argc, _TCHAR* argv[])
 {
 	init_config();
@@ -903,19 +1073,18 @@ int _tmain(int argc, _TCHAR* argv[])
 	default:
 		break;
 	}
+
+	//色教師データの構築
+	int* color_feature_space = NULL;
+	color_feature_space = (int *)calloc(256 * 256 * 256, sizeof(int));
+	import_color_data(color_feature_space);
+	
 	Label parts1, parts2, parts3, parts4, parts5, parts6, parts7, parts8, parts9, parts10,
 		parts11, parts12, parts13, parts14, parts15, parts16, parts17, parts18, parts19, parts20,
 		parts21, parts22, parts23;
 	Label* parts[PARTS_LENGTH] = { &parts1, &parts2, &parts3, &parts4, &parts5, &parts6,
 		&parts7, &parts8, &parts9, &parts10, &parts11, &parts12, &parts13, &parts14, &parts15,
 		&parts16, &parts17, &parts18, &parts19, &parts20, &parts21, &parts22, &parts23 };
-
-//	Label parts[PARTS_LENGTH];
-/*	for (int i = 0; i < PARTS_LENGTH; i++){
-		Label l;
-		parts[i] = l;
-	}*/
-	//腰、左膝、右膝、左足首、右足首のLabelインスタンスを宣言
 
 	ofstream ofs("output_angles.txt");
 	namedWindow("test");
@@ -950,23 +1119,27 @@ int _tmain(int argc, _TCHAR* argv[])
 					}
 				}
 			}*/
-			init_label_class(frame, parts);
+			init_label_class(frame, parts, color_feature_space);
 			Scalar test_colors[LABEL_KIND_NUM] = { { 0, 0, 255 }, { 0, 255, 0 }, { 255, 0, 0 }, { 0, 255, 255 },
 			{ 255, 255, 0 }, { 255, 0, 255 }, { 0, 0, 125 }, { 0, 125, 0 },
 			{ 125, 0, 0 }, { 0, 125, 125 }, { 125, 0, 125 }, { 125, 125, 0 } };
 			
-			vector<vector<Point>> test_points;
-			
-			for (int m = 0; m < PARTS_LENGTH; m++){
-		//		if (parts[m]->get_is_parts()){
-				if (parts[m]->get_id() == RIGHT_KNEE){
+		/*	for (int m = 0; m < PARTS_LENGTH; m++){
+				if (parts[m]->get_is_parts()){
 					vector<Point> test_point = parts[m]->get_current_points();
+					vector<Point> test_point = parts[m]->get_cog();
 					test_points.push_back(test_point);
 				}
-			}
+			}*/
+
 			//特定のPartsだけみたいとき
 			//vector<Point> test_point = parts[0]->get_current_points();
 			//test_points.push_back(test_point);
+	
+			
+			//色のサンプルを出力したいとき
+			//output_sample_color(frame, parts);
+			/*
 			int n = 0;
 			for (auto itr = test_points.begin(); itr != test_points.end(); ++itr){
 				vector<Point> test_point = *itr;
@@ -975,7 +1148,7 @@ int _tmain(int argc, _TCHAR* argv[])
 					rectangle(dst_img, p, p, test_colors[n]);
 				}
 				n++;
-			}
+			}*/
 		//	output_labels(width, height);
 		/*	for (int y = 0; y < height; y++){
 				Vec3b* ptr = frame.ptr<Vec3b>(y);
@@ -994,15 +1167,24 @@ int _tmain(int argc, _TCHAR* argv[])
 			break;
 		}
 		else{
-			break;
 			if (MODE == 1){
 				resize_and_preproc(frame, &height_min, &height_max, &width_min, &width_max, &resized_width, &resized_height, &resized_hmean, &resized_wmean);
 				change_prev_and_current(parts);
-//				search_points_from_image(frame, parts);
+				search_same_points(frame, parts, height_min, height_max, width_min, width_max);
+				search_around_points_each_labels(frame, parts, color_feature_space);
 				set_cog_each_label(parts);
 			}
 			else{
 				break;
+			}
+		}
+		vector<vector<Point>> test_points;
+
+		for (int m = 0; m < PARTS_LENGTH; m++){
+			if (parts[m]->get_id() == HEAD){
+				//vector<Point> test_point = parts[m]->get_current_points();
+				Point test_point = parts[m]->get_cog()[count - use_start_frame];
+				circle(dst_img, test_point, 10, Scalar(0, 0, 255));
 			}
 		}
 		try{
@@ -1015,18 +1197,6 @@ int _tmain(int argc, _TCHAR* argv[])
 		imshow("test", frame);
 		waitKey(30);
 	}
-/*	if (MODE == 1 && HIST == 0){
-		for (int i = 0; i < use_frame_num; i++){
-			cout << i << "フレーム目:" << angles[i] << endl;
-			ofs << i << ", " << angles[i] << endl;
-			circle(dst_img, ankle.get_cog()[i], 1, Scalar(0, 0, 255), -1);
-			circle(dst_img, left_knee.get_cog()[i], 1, Scalar(0, 255, 100), -1);
-			circle(dst_img, right_knee.get_cog()[i], 1, Scalar(255, 0, 0), -1);
-			circle(dst_img, left_heel.get_cog()[i], 1, Scalar(255, 217, 0), -1);
-			circle(dst_img, right_heel.get_cog()[i], 1, Scalar(255, 0, 255), -1);
-			circle(dst_img, head.get_cog()[i], 1, Scalar(255, 255, 0), -1);
-		}
-	}*/
 	
 	try{
 		imwrite("出力結果.png", dst_img);
