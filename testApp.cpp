@@ -1004,13 +1004,14 @@ bool check_distinct_points(XYRGB *kCenter, XYRGB data, int count){
 	}
 }
 
-string output_color_name[COLOR_KIND] = { "green_data.dat", "yellow_data.dat", "pink_data.dat", "blue_data.dat" };
 void output_sample_color(Mat frame, Label* parts[]){
-	const int parts_index = 10;
-	const int target = BLUE;
+	string output_color_name[COLOR_KIND] = { "green_data.dat", "yellow_data.dat", "pink_data.dat", "blue_data.dat" };
+	const int parts_index = 6;
+	const int target = PINK;
 	Label sample_parts = *(parts[parts_index]);
 	vector<Point> points = sample_parts.get_current_points();
-	ofstream out_labels(output_color_name[target]);
+	string name = output_color_name[target - 1];
+	ofstream out_labels(output_color_name[target-1]);
 	for (auto itr = points.begin(); itr != points.end(); ++itr){
 		Point p = *itr;
 		Vec3b c = frame.at<Vec3b>(p);
@@ -1023,9 +1024,10 @@ void output_sample_color(Mat frame, Label* parts[]){
 }
 
 void import_color_data(int* color_feature_space){
+	string import_color_name[COLOR_KIND] = { "green_data.dat", "yellow_data.dat", "pink_data.dat", "blue_data.dat" };
 	for (int i = 0; i < COLOR_KIND; i++){
 		ifstream input_color_file;
-		input_color_file.open(output_color_name[i]);
+		input_color_file.open(import_color_name[i]);
 		if (input_color_file.fail()){
 			cout << "Exception: ファイルが見つかりません。" << endl;
 			cin.get();
@@ -1037,7 +1039,7 @@ void import_color_data(int* color_feature_space){
 			string tmp;
 			istringstream stream(str);
 			c = 0;
-			while (getline(stream, tmp, ',')){
+			while (getline(stream, tmp, ' ')){
 				if (c == 0){ r = stoi(tmp); }
 				else if (c == 1){ g = stoi(tmp); }
 				else{ b = stoi(tmp); }
@@ -1120,25 +1122,17 @@ int _tmain(int argc, _TCHAR* argv[])
 				}
 			}*/
 			init_label_class(frame, parts, color_feature_space);
-			Scalar test_colors[LABEL_KIND_NUM] = { { 0, 0, 255 }, { 0, 255, 0 }, { 255, 0, 0 }, { 0, 255, 255 },
-			{ 255, 255, 0 }, { 255, 0, 255 }, { 0, 0, 125 }, { 0, 125, 0 },
-			{ 125, 0, 0 }, { 0, 125, 125 }, { 125, 0, 125 }, { 125, 125, 0 } };
-			
-		/*	for (int m = 0; m < PARTS_LENGTH; m++){
-				if (parts[m]->get_is_parts()){
-					vector<Point> test_point = parts[m]->get_current_points();
-					vector<Point> test_point = parts[m]->get_cog();
-					test_points.push_back(test_point);
-				}
-			}*/
+			//色のサンプルを出力したいとき
+//			output_sample_color(frame, parts);
 
 			//特定のPartsだけみたいとき
-			//vector<Point> test_point = parts[0]->get_current_points();
+			//vector<Point> test_point = parts[6]->get_current_points();
 			//test_points.push_back(test_point);
-	
+			/*for (auto itr2 = test_point.begin(); itr2 != test_point.end(); ++itr2){
+				Point p = *itr2;
+				rectangle(dst_img, p, p, test_colors[0]);
+			}*/
 			
-			//色のサンプルを出力したいとき
-			//output_sample_color(frame, parts);
 			/*
 			int n = 0;
 			for (auto itr = test_points.begin(); itr != test_points.end(); ++itr){
@@ -1178,15 +1172,27 @@ int _tmain(int argc, _TCHAR* argv[])
 				break;
 			}
 		}
-		vector<vector<Point>> test_points;
+
+		Scalar test_colors[LABEL_KIND_NUM] = { { 0, 0, 255 }, { 0, 255, 0 }, { 255, 0, 0 }, { 0, 255, 255 },
+		{ 255, 255, 0 }, { 255, 0, 255 }, { 0, 0, 125 }, { 0, 125, 0 },
+		{ 125, 0, 0 }, { 0, 125, 125 }, { 125, 0, 125 }, { 125, 125, 0 } };
 
 		for (int m = 0; m < PARTS_LENGTH; m++){
-			if (parts[m]->get_id() == HEAD){
+			if (parts[m]->get_is_parts()){
 				//vector<Point> test_point = parts[m]->get_current_points();
 				Point test_point = parts[m]->get_cog()[count - use_start_frame];
-				circle(dst_img, test_point, 10, Scalar(0, 0, 255));
+				circle(dst_img, test_point, 10, get_random_color(), -1);
 			}
 		}
+		/*
+
+		for (int m = 0; m < PARTS_LENGTH; m++){
+			if (parts[m]->get_is_parts()){
+				vector<Point> test_point = parts[m]->get_current_points();
+				vector<Point> test_point = parts[m]->get_cog();
+				test_points.push_back(test_point);
+			}
+		}*/
 		try{
 			imwrite(filename[count - use_start_frame], dst_img);
 		}
